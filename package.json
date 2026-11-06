@@ -14,7 +14,8 @@
     "build": "npm run build --workspaces",
     "typecheck": "npm run typecheck --workspaces",
     "start": "npm run start -w apps/api",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test": "npm run build -w apps/api && node --test apps/api/tests/*.test.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

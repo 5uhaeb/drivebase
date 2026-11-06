@@ -37,6 +37,7 @@ import {
   type DocumentRecord,
   type QueryResult,
 } from './api';
+import { chooseDriveFolder } from './drive-picker';
 
 const initialSql =
   "SELECT\n  'Hello, Drivebase' AS message,\n  sqlite_version() AS sqlite_version;";
@@ -233,6 +234,20 @@ export default function App() {
       setSelectedId(list[0]?.id || '');
     });
   }
+  async function connectFolder() {
+    await act('Choosing Drive folder', async () => {
+      const folderId = await chooseDriveFolder();
+      if (!folderId) return;
+      const data = await api<{ user: User }>('/drive/folder', {
+        method: 'PUT',
+        body: JSON.stringify({ folderId }),
+      });
+      setUser(data.user);
+      setNotice(
+        `New databases will be saved in “${data.user.folderName || 'your selected folder'}”. Existing database files remain in their current folders.`,
+      );
+    });
+  }
   async function createDatabase(event: FormEvent) {
     event.preventDefault();
     await act('Creating database', async () => {
@@ -378,7 +393,7 @@ export default function App() {
                   ? 'Live preview · Sign-in is currently disabled'
                   : mode === 'demo'
                     ? 'Local development · Google credentials not required'
-                    : 'Access limited to files created with Drivebase'}
+                    : 'Access limited to app-created or selected files'}
               </span>
             </div>
             {mode === 'setup' && (
@@ -621,6 +636,12 @@ export default function App() {
                 <dl>
                   <dt>Storage provider</dt>
                   <dd>{mode === 'demo' ? 'Local filesystem' : 'Your Google Drive'}</dd>
+                  {user.folderId && (
+                    <>
+                      <dt>New database folder</dt>
+                      <dd>{user.folderName || 'Drivebase'}</dd>
+                    </>
+                  )}
                   <dt>Database engine</dt>
                   <dd>SQLite · SQL + JSON documents</dd>
                   <dt>Write confirmation</dt>
@@ -639,8 +660,24 @@ export default function App() {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    <FolderOpen size={16} /> Open Drivebase folder <ExternalLink size={14} />
+                    <FolderOpen size={16} /> Open database folder <ExternalLink size={14} />
                   </a>
+                )}
+                {mode === 'google' && (
+                  <div className="choose-folder-section">
+                    <button className="primary" disabled={!!busy} onClick={connectFolder}>
+                      {busy === 'Choosing Drive folder' ? (
+                        <LoaderCircle size={16} className="spin" />
+                      ) : (
+                        <FolderOpen size={16} />
+                      )}
+                      Choose an existing folder
+                    </button>
+                    <p>
+                      Choose the folder you want new databases saved in. Existing database files are
+                      not moved.
+                    </p>
+                  </div>
                 )}
               </section>
               <section className="panel connection-panel">
@@ -649,7 +686,7 @@ export default function App() {
                 <p>
                   {mode === 'demo'
                     ? 'Configure the Google OAuth client on the backend, then restart with AUTH_MODE=google.'
-                    : 'Drivebase requests access to files it creates. Your other Drive files remain outside that permission.'}
+                    : 'Drivebase accesses files it creates and folders you explicitly choose. Selecting a folder does not import every file inside it.'}
                 </p>
                 <ol>
                   <li>Create a Google OAuth web client and enable the Drive API.</li>

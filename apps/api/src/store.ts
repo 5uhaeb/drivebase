@@ -19,6 +19,7 @@ export interface User {
   picture?: string;
   refreshToken?: string;
   folderId?: string;
+  folderName?: string;
 }
 export interface DatabaseRecord {
   id: string;
@@ -41,9 +42,10 @@ export const state: State = existsSync(path)
   : { users: {}, databases: {}, sessions: {} };
 export function persist() {
   const temporary = `${path}.tmp`;
-  writeFileSync(temporary, JSON.stringify(state), { mode: 0o600 });
-  const fd = openSync(temporary, 'r');
+  // Windows requires a writable handle for fsync/FlushFileBuffers.
+  const fd = openSync(temporary, 'w', 0o600);
   try {
+    writeFileSync(fd, JSON.stringify(state));
     fsyncSync(fd);
   } finally {
     closeSync(fd);

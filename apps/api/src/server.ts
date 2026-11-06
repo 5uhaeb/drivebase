@@ -14,7 +14,15 @@ import {
   type User,
   type DatabaseRecord,
 } from './store.js';
-import { oauth, ensureFolder, download, upload, HttpError } from './storage.js';
+import {
+  oauth,
+  ensureFolder,
+  download,
+  upload,
+  HttpError,
+  googleAccessToken,
+  selectFolder,
+} from './storage.js';
 import { execute, serialized } from './engine.js';
 
 const app = express();
@@ -39,6 +47,7 @@ const publicUser = (user: User) => ({
   email: user.email,
   picture: user.picture,
   folderId: user.folderId,
+  folderName: user.folderName,
 });
 function currentUser(req: Request): User {
   if (config.mode === 'setup')
@@ -154,6 +163,31 @@ app.post('/api/auth/logout', (req, res) => {
     delete state.sessions[digest(req.cookies.drivebase_session)];
   persist();
   res.clearCookie('drivebase_session', cookie).json({ success: true });
+});
+app.post('/api/drive/picker', async (req, res) => {
+  const user = currentUser(req);
+  if (config.mode !== 'google')
+    throw new HttpError(400, 'Folder selection requires Google sign-in.');
+  if (!config.pickerApiKey || !config.googleProjectNumber)
+    throw new HttpError(
+      503,
+      'Google Picker is not configured yet. Add the Picker API key and Cloud project number on the backend.',
+    );
+  res.json({
+    accessToken: await googleAccessToken(user),
+    apiKey: config.pickerApiKey,
+    projectNumber: config.googleProjectNumber,
+  });
+});
+app.put('/api/drive/folder', async (req, res) => {
+  const user = currentUser(req);
+  if (config.mode !== 'google')
+    throw new HttpError(400, 'Folder selection requires Google sign-in.');
+  const { folderId } = z
+    .object({ folderId: z.string().regex(/^[a-zA-Z0-9_-]{1,200}$/) })
+    .parse(req.body);
+  await serialized(`folder:${user.id}`, () => selectFolder(user, folderId));
+  res.json({ user: publicUser(user) });
 });
 app.use('/api/databases', (_req, res, next) => {
   res.set('Cache-Control', 'no-store');

@@ -12,6 +12,7 @@ The hosted preview can run in `AUTH_MODE=setup`. This displays the public landin
 - SQL editor with table discovery, query history for the current tab, query results, and keyboard execution.
 - JSON document collections with create/update/delete, IDs, and pagination.
 - Downloadable SQLite databases.
+- Google Picker folder selection for saving new databases in an existing writable folder.
 - Google sign-in plus `drive.file` consent; a visible `Drivebase` folder created in the user's Drive.
 - Encrypted refresh tokens, opaque hashed sessions, tenant ownership checks, and request origin validation.
 - Per-database request serialization and isolated query workers with a timeout.
@@ -34,6 +35,7 @@ No `.env` is required for local mode. To configure Google, copy `apps/api/.env.e
 ```sh
 npm run typecheck
 npm run build
+npm test
 ```
 
 Build outputs are `apps/api/dist/` and `apps/web/dist/`. `npm start` starts the compiled API only. The frontend is served by Vercel in deployment and Vite during development.
@@ -63,7 +65,7 @@ The UI is React with Vite. Vercel hosts static assets and proxies `/api` to Rend
 - SQL supports one statement per request, with up to 500 returned rows, a default five-second worker timeout, and a 128 MiB JS heap limit per worker. WASM memory is not fully governed by the JS heap limit; strict total-memory isolation is future work.
 - Concurrent requests for one database are serialized. External edits, multiple writers, and cross-file transactions are unsupported.
 - A failed/timed-out Drive upload can have an uncertain outcome. Refresh and read back before retrying. There is no exactly-once request protocol or automatic write retry.
-- Session expiry is seven days. Revoked Google access requires reconnecting. No Drive API tokens are sent to browser JavaScript.
+- Session expiry is seven days. Revoked Google access requires reconnecting. Refresh tokens stay encrypted on the backend; Google's browser folder picker receives a short-lived access token.
 - Control metadata is an atomic JSON file on the Render disk, rather than a separate Postgres service. It includes users, encrypted tokens, hashed sessions, and the database catalog. Back up this disk separately: losing it loses account-to-file mappings and sessions. Database files remain in Drive, but catalog recovery/import is not implemented.
 - The server needs a stable `TOKEN_ENCRYPTION_KEY`. Changing or losing it makes existing refresh tokens unreadable; users must reconnect.
 - User-created SQL triggers are not supported. JSON editing accepts object documents, with a 256 KiB request limit and 100 documents per list page.
@@ -72,6 +74,8 @@ The UI is React with Vite. Vercel hosts static assets and proxies `/api` to Rend
 ## Deployment and testing
 
 See [deployment instructions](docs/DEPLOYMENT.md), [API reference](docs/API.md), and the [MVP acceptance checklist](docs/TESTING.md). No live cloud deployment is implied by the presence of these configuration files.
+
+For Google credentials and choosing a specific existing folder, follow the [step-by-step Google setup guide](docs/GOOGLE_SETUP.md). Local API tests cover SQL, document CRUD, concurrent writes, persistence after restart, account isolation, and disabled sign-in; they do not exercise real Google authorization or Drive uploads.
 
 ## References
 

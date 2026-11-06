@@ -14,7 +14,7 @@ export class HttpError extends Error {
     super(message);
   }
 }
-async function drive(user: User, path: string, init: RequestInit = {}) {
+export async function googleAccessToken(user: User): Promise<string> {
   if (!user.refreshToken) throw new HttpError(401, 'Reconnect Google Drive to continue.');
   const client = oauth();
   client.setCredentials({ refresh_token: unseal(user.refreshToken) });
@@ -30,6 +30,11 @@ async function drive(user: User, path: string, init: RequestInit = {}) {
   } catch {
     throw new HttpError(401, 'Google access expired or was revoked. Sign in again.');
   }
+  if (!access) throw new HttpError(401, 'Reconnect your Google account.');
+  return access;
+}
+async function drive(user: User, path: string, init: RequestInit = {}) {
+  const access = await googleAccessToken(user);
   const response = await fetch(`https://www.googleapis.com/${path}`, {
     ...init,
     headers: { ...init.headers, Authorization: `Bearer ${access}` },
@@ -64,8 +69,30 @@ export async function ensureFolder(user: User) {
     }),
   });
   user.folderId = ((await response.json()) as { id: string }).id;
+  user.folderName = 'Drivebase';
   persist();
   return user.folderId;
+}
+export async function selectFolder(user: User, folderId: string) {
+  const response = await drive(
+    user,
+    `drive/v3/files/${encodeURIComponent(folderId)}?supportsAllDrives=true&fields=id,name,mimeType,trashed,capabilities(canAddChildren)`,
+  );
+  const folder = (await response.json()) as {
+    id: string;
+    name: string;
+    mimeType: string;
+    trashed?: boolean;
+    capabilities?: { canAddChildren?: boolean };
+  };
+  if (folder.mimeType !== 'application/vnd.google-apps.folder' || folder.trashed)
+    throw new HttpError(400, 'Choose an existing Drive folder that is not in the trash.');
+  if (!folder.capabilities?.canAddChildren)
+    throw new HttpError(403, 'You need permission to create files in this folder.');
+  user.folderId = folder.id;
+  user.folderName = folder.name;
+  persist();
+  return folder;
 }
 function localFile(user: User, id: string) {
   if (!/^[a-zA-Z0-9_-]+$/.test(id) || !/^[a-zA-Z0-9_-]+$/.test(user.id))
@@ -74,7 +101,10 @@ function localFile(user: User, id: string) {
 }
 export async function download(user: User, fileId: string): Promise<Uint8Array> {
   if (config.mode === 'demo') return new Uint8Array(await readFile(localFile(user, fileId)));
-  const response = await drive(user, `drive/v3/files/${encodeURIComponent(fileId)}?alt=media`);
+  const response = await drive(
+    user,
+    `drive/v3/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`,
+  );
   if (!response.body) throw new HttpError(502, 'Drive returned an empty response');
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -123,7 +153,7 @@ export async function upload(
   ]);
   const response = await drive(
     user,
-    `upload/drive/v3/files${fileId ? `/${encodeURIComponent(fileId)}` : ''}?uploadType=multipart&fields=id`,
+    `upload/drive/v3/files${fileId ? `/${encodeURIComponent(fileId)}` : ''}?uploadType=multipart&supportsAllDrives=true&fields=id`,
     {
       method: fileId ? 'PATCH' : 'POST',
       headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },

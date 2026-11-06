@@ -21,6 +21,14 @@ Write requests require the exact configured `FRONTEND_URL` Origin header. Reques
 | PUT    | `/databases/:id/collections/:collection/documents/:documentId` | Create or replace an object document        |
 | DELETE | `/databases/:id/collections/:collection/documents/:documentId` | Delete one document                         |
 
+## Folder selection
+
+`POST /drive/picker` supplies Google's browser picker with a short-lived access token, restricted browser API key, and project number for the signed-in Google account. This response must not be logged or cached. Refresh tokens remain on the backend.
+
+`PUT /drive/folder` accepts `{ "folderId": "..." }` after the user has selected that folder in Google Picker. The server verifies the folder MIME type, trash state, and `canAddChildren` capability through the user's authorized Drive API client. It changes the destination of new databases only. Merely knowing a folder ID does not grant access to it.
+
+Both endpoints require a session, the configured request Origin, and Google mode. They are disabled in setup mode.
+
 ## SQL
 
 ```json

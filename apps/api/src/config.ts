@@ -9,6 +9,8 @@ export const config = {
   redirect: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5173/api/auth/google/callback',
   clientId: process.env.GOOGLE_CLIENT_ID || '',
   clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+  pickerApiKey: process.env.GOOGLE_PICKER_API_KEY || '',
+  googleProjectNumber: process.env.GOOGLE_CLOUD_PROJECT_NUMBER || '',
   encryptionKey: process.env.TOKEN_ENCRYPTION_KEY || '',
   dataDir: resolve(process.env.DATA_DIR || '.data'),
   maxBytes: Number(process.env.MAX_DATABASE_BYTES || 10 * 1024 * 1024),

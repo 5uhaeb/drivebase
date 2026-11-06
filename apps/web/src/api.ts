@@ -4,6 +4,7 @@ export interface User {
   email: string;
   picture?: string;
   folderId?: string;
+  folderName?: string;
 }
 export interface Database {
   id: string;

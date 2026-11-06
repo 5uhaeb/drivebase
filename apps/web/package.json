@@ -9,11 +9,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "lucide-react": "^0.553.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "lucide-react": "^0.553.0"
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@types/gapi": "^0.0.47",
+    "@types/google.picker": "^0.0.52",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^5.1.0",
