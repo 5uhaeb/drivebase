@@ -1632,6 +1632,12 @@ kbd {
 .connection-panel {
   padding: 27px;
 }
+.project-connections {
+  grid-column: 1 / -1;
+}
+.project-connections .primary {
+  margin-top: 12px;
+}
 .connection-panel h2 {
   font-size: 20px;
   margin: 14px 0;

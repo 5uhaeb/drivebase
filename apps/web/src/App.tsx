@@ -102,8 +102,12 @@ export default function App() {
   const [history, setHistory] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
+  const [projectDownload, setProjectDownload] = useState('');
   const editor = useRef<HTMLTextAreaElement>(null);
   const selected = databases.find((db) => db.id === selectedId);
+  useEffect(() => () => {
+    if (projectDownload) URL.revokeObjectURL(projectDownload);
+  }, [projectDownload]);
 
   const refreshDatabases = useCallback(async () => {
     const data = await api<{ databases: Database[] }>('/databases');
@@ -271,15 +275,17 @@ export default function App() {
       const url = URL.createObjectURL(
         new Blob([JSON.stringify(credentials, null, 2)], { type: 'application/json' }),
       );
+      setProjectDownload(url);
       const link = document.createElement('a');
       link.href = url;
       link.download = 'drivebase-project-credentials.json';
+      document.body.appendChild(link);
       link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      await refreshDatabases();
+      link.remove();
       setNotice(
-        'Project databases are ready. Keep the downloaded connection file private; it grants each app access to its own database.',
+        'Your website connections are ready. If the download did not start, use Download connection file below.',
       );
+      refreshDatabases().catch(() => {});
     });
   }
   async function createDatabase(event: FormEvent) {
@@ -667,6 +673,25 @@ export default function App() {
           </div>
           {tab === 'connection' ? (
             <div className="connection-grid">
+              {mode === 'google' && (
+                <section className="panel connection-panel project-connections" aria-labelledby="project-connections-title">
+                  <span className="eyebrow">YOUR THREE WEBSITES</span>
+                  <h2 id="project-connections-title">Connect your websites to Google Drive</h2>
+                  <p>Prepare storage for Portfolio, Watchparty and Taskflow. This creates a private connection file for their setup.</p>
+                  {projectDownload ? (
+                    <a className="primary" href={projectDownload} download="drivebase-project-credentials.json">
+                      <ArrowDownToLine size={17} /> Download connection file
+                    </a>
+                  ) : (
+                    <button className="primary" disabled={!!busy} onClick={connectProjects}>
+                      {busy === 'Preparing project connections' ? <LoaderCircle size={17} className="spin" /> : <Code2 size={17} />}
+                      {busy === 'Preparing project connections' ? 'Connecting your websites…' : 'Connect portfolio, Watchparty and Taskflow'}
+                    </button>
+                  )}
+                  {busy === 'Preparing project connections' && <p role="status">Creating the three connections in your Drive. This can take up to a minute.</p>}
+                  {projectDownload && <p role="status">Ready. Save the file to Downloads, then return to the chat and say “done”. Keep this file private.</p>}
+                </section>
+              )}
               <section className="panel connection-panel">
                 <div className="connection-hero">
                   <Cloud size={28} />
@@ -720,24 +745,6 @@ export default function App() {
                     <p>
                       Choose the folder you want new databases saved in. Existing database files are
                       not moved.
-                    </p>
-                    <button
-                      className="secondary"
-                      disabled={!!busy}
-                      onClick={connectProjects}
-                      style={{ marginTop: 16 }}
-                    >
-                      {busy === 'Preparing project connections' ? (
-                        <LoaderCircle size={16} className="spin" />
-                      ) : (
-                        <Code2 size={16} />
-                      )}
-                      Connect portfolio, Watchparty and Taskflow
-                    </button>
-                    <p>
-                      Creates a separate database and server credential for each of these three
-                      projects, then downloads their connection file. Clicking again replaces their
-                      previous credentials.
                     </p>
                   </div>
                 )}
