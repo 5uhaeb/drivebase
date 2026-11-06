@@ -14,9 +14,10 @@ export const config = {
   maxBytes: Number(process.env.MAX_DATABASE_BYTES || 10 * 1024 * 1024),
   queryTimeout: Number(process.env.QUERY_TIMEOUT_MS || 5000),
 };
-if (!['demo', 'google'].includes(config.mode)) throw new Error('AUTH_MODE must be demo or google');
-if (config.production && config.mode !== 'google')
-  throw new Error('Production requires AUTH_MODE=google');
+if (!['demo', 'google', 'setup'].includes(config.mode))
+  throw new Error('AUTH_MODE must be demo, google, or setup');
+if (config.production && config.mode === 'demo')
+  throw new Error('Production requires AUTH_MODE=google or setup');
 if (
   config.mode === 'google' &&
   (!config.clientId ||

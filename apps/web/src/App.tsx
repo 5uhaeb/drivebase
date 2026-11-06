@@ -113,9 +113,11 @@ export default function App() {
         const authError = new URLSearchParams(location.search).get('error');
         if (authError && active) {
           setError(
-            authError === 'google_not_configured'
-              ? 'Google sign-in is not configured. Use the local workspace or configure Google credentials.'
-              : 'Google connection failed. Please try again and allow Drive file access.',
+            authError === 'sign_in_disabled'
+              ? 'Sign-in is disabled while Google Drive setup is pending.'
+              : authError === 'google_not_configured'
+                ? 'Google sign-in is not configured. Use the local workspace or configure Google credentials.'
+                : 'Google connection failed. Please try again and allow Drive file access.',
           );
           window.history.replaceState({}, '', location.pathname);
         }
@@ -361,6 +363,10 @@ export default function App() {
                   {busy ? <LoaderCircle size={18} className="spin" /> : <Terminal size={18} />} Open
                   local workspace <ArrowRight size={18} />
                 </button>
+              ) : mode === 'setup' ? (
+                <button className="primary large" disabled aria-describedby="setup-status">
+                  <GoogleIcon /> Google sign-in coming soon
+                </button>
               ) : (
                 <a className="primary large" href="/api/auth/google">
                   <GoogleIcon /> Continue with Google <ArrowRight size={18} />
@@ -368,11 +374,19 @@ export default function App() {
               )}
               <span>
                 <ShieldCheck size={14} />{' '}
-                {mode === 'demo'
-                  ? 'Local development · Google credentials not required'
-                  : 'Access limited to files created with Drivebase'}
+                {mode === 'setup'
+                  ? 'Live preview · Sign-in is currently disabled'
+                  : mode === 'demo'
+                    ? 'Local development · Google credentials not required'
+                    : 'Access limited to files created with Drivebase'}
               </span>
             </div>
+            {mode === 'setup' && (
+              <p id="setup-status" className="setup-status" role="status">
+                Drivebase is live. Google Drive connection setup is in progress; database access
+                will open once sign-in is enabled.
+              </p>
+            )}
             {alert}
             <div className="login-chips">
               <span>
@@ -412,7 +426,7 @@ export default function App() {
             <div className="visual-result">
               <Check size={15} />
               <span>Your database. Your storage.</span>
-              <span className="visual-badge">Connected</span>
+              <span className="visual-badge">{mode === 'setup' ? 'Preview' : 'SQL + JSON'}</span>
             </div>
             <div className="floating-drive">
               <Cloud size={24} />

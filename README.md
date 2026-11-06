@@ -4,6 +4,8 @@ A personal database server with a Vercel dashboard, a Render API, and database f
 
 **Status:** MVP implementation. Type checks and production compilation are part of delivery; live Google authorization and deployed end-to-end testing belong to the next testing phase. This is a small-workload prototype, not a production database service.
 
+The hosted preview can run in `AUTH_MODE=setup`. This displays the public landing page with sign-in disabled and rejects all database access. It does not expose local demo mode. See the [deployment guide](docs/DEPLOYMENT.md#setup-only-preview) before enabling Google accounts.
+
 ## Included
 
 - Responsive database dashboard, database creation, and account connection view.

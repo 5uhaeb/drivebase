@@ -2,6 +2,12 @@
 
 The frontend and backend must use the same `main` source revision. The database server must run as a single Render instance with a persistent disk. A paid Render plan is needed for that disk; check current pricing before deployment.
 
+## Setup-only preview
+
+Until Google credentials are available, the public preview uses `AUTH_MODE=setup` on a free Render instance. This mode disables Google sign-in, rejects the demo login, and rejects database operations. The frontend explicitly displays that Drive setup is pending. No account credentials or database data are accepted in this mode, so a persistent disk is not needed yet. Free Render services can sleep when idle; the first page load may wait for the backend to start.
+
+Before changing to `AUTH_MODE=google`, move the backend to a paid plan, attach the persistent disk at `/var/data`, set `DATA_DIR=/var/data`, configure the Google credentials and token encryption key, and register the exact frontend callback URL. Do not enable user accounts on ephemeral control storage. The root `render.yaml` describes the full Google-enabled deployment rather than the temporary free preview.
+
 ## Google setup
 
 1. Create a Google Cloud project and enable **Google Drive API**.
@@ -57,19 +63,19 @@ Preview domains require matching Google redirect URIs and backend frontend-origi
 
 ## Environment reference
 
-| Variable               | Purpose                                                                 |
-| ---------------------- | ----------------------------------------------------------------------- |
-| `PORT`                 | Render-provided port; local default 4000                                |
-| `NODE_ENV`             | `production` in Render                                                  |
-| `AUTH_MODE`            | `demo` for local only, `google` for real accounts                       |
-| `FRONTEND_URL`         | Browser origin and allowed write-request Origin                         |
-| `GOOGLE_REDIRECT_URI`  | Frontend `/api/auth/google/callback` URL                                |
-| `GOOGLE_CLIENT_ID`     | Google OAuth web client ID                                              |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth web client secret                                          |
-| `TOKEN_ENCRYPTION_KEY` | Base64 encoding of 32 random bytes                                      |
-| `DATA_DIR`             | Durable metadata directory; `/var/data` on Render                       |
-| `MAX_DATABASE_BYTES`   | Default and maximum 10485760, 10 MiB; may be lowered to at least 16 KiB |
-| `QUERY_TIMEOUT_MS`     | Default 5000                                                            |
+| Variable               | Purpose                                                                         |
+| ---------------------- | ------------------------------------------------------------------------------- |
+| `PORT`                 | Render-provided port; local default 4000                                        |
+| `NODE_ENV`             | `production` in Render                                                          |
+| `AUTH_MODE`            | `demo` for local only, `setup` for disabled sign-in, `google` for real accounts |
+| `FRONTEND_URL`         | Browser origin and allowed write-request Origin                                 |
+| `GOOGLE_REDIRECT_URI`  | Frontend `/api/auth/google/callback` URL                                        |
+| `GOOGLE_CLIENT_ID`     | Google OAuth web client ID                                                      |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth web client secret                                                  |
+| `TOKEN_ENCRYPTION_KEY` | Base64 encoding of 32 random bytes                                              |
+| `DATA_DIR`             | Durable metadata directory; `/var/data` on Render                               |
+| `MAX_DATABASE_BYTES`   | Default and maximum 10485760, 10 MiB; may be lowered to at least 16 KiB         |
+| `QUERY_TIMEOUT_MS`     | Default 5000                                                                    |
 
 ## Before real users
 

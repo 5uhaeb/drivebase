@@ -343,6 +343,14 @@ input::placeholder {
   align-items: flex-start;
   gap: 13px;
 }
+.login-layout section > .setup-status {
+  font-size: 12px;
+  color: #b1c59f;
+  border-left: 2px solid #7ba258;
+  padding: 8px 0 8px 14px;
+  margin-bottom: 24px;
+  max-width: 410px;
+}
 .login-actions > span {
   display: flex;
   align-items: center;

@@ -41,6 +41,8 @@ const publicUser = (user: User) => ({
   folderId: user.folderId,
 });
 function currentUser(req: Request): User {
+  if (config.mode === 'setup')
+    throw new HttpError(503, 'Sign-in is disabled while Google Drive setup is pending.');
   const token = req.cookies.drivebase_session;
   const session = typeof token === 'string' ? state.sessions[digest(token)] : undefined;
   if (!session || session.expires < Date.now() || !state.users[session.userId])
@@ -88,6 +90,7 @@ app.post('/api/auth/demo', (_req, res) => {
     .json({ user: publicUser(user) });
 });
 app.get('/api/auth/google', (_req, res) => {
+  if (config.mode === 'setup') return res.redirect(`${config.frontend}/?error=sign_in_disabled`);
   if (config.mode !== 'google')
     return res.redirect(`${config.frontend}/?error=google_not_configured`);
   const nonce = randomBytes(24).toString('base64url');
