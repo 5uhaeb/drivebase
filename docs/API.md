@@ -1,8 +1,16 @@
 # MVP API
 
-All routes are under `/api`. The dashboard uses the frontend origin's `/api` proxy. Google authentication uses an encrypted HTTP-only session cookie, with a session ID hash and expiry stored in the user's private Drive catalog. The backend reads and validates that catalog before each authenticated request. Local demo sessions use local metadata. There are no developer API keys in this MVP.
+All routes are under `/api`. The dashboard uses the frontend origin's `/api` proxy. Google authentication uses an encrypted HTTP-only session cookie, with a session ID hash and expiry stored in the user's private Drive catalog. The backend reads and validates that catalog before each authenticated request. Local demo sessions use local metadata.
 
 Write requests require the exact configured `FRONTEND_URL` Origin header. Requests with bodies require `Content-Type: application/json`. Errors have the shape `{ "error": "message" }`. Rate limit: 120 requests per minute per client IP, including authorization routes.
+
+## Application connections
+
+The signed-in owner's Connection page can provision the portfolio, watchparty, and taskflow databases via `POST /integrations/projects`. It downloads a private credentials bundle containing database IDs and encrypted application keys. Keep this file outside source control. Calling the endpoint again replaces the preceding keys for these projects.
+
+Server applications authenticate with `Authorization: Bearer <apiKey>`. Each key permits only its database's routes, requires a matching active hash in the Drive catalog, expires after 180 days, and survives dashboard logout. Valid application credentials do not require a browser Origin header. Google access must remain authorized independently; Google's Testing mode can expire refresh tokens after seven days.
+
+`POST /databases/:id/import` accepts `application/vnd.sqlite3` up to the database size limit. It validates a Drivebase SQLite snapshot before replacing that database's file. Export the destination first when it contains data. Import preserves the database's ID and Drive file ID.
 
 | Method | Route                                                          | Purpose                                     |
 | ------ | -------------------------------------------------------------- | ------------------------------------------- |

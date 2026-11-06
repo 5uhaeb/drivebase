@@ -179,6 +179,33 @@ test('local SQL and document API persists isolated database files', async (t) =>
       assert.deepEqual((await query('SELECT total FROM tally')).data.rows, [[6]]);
     });
     await t.test(
+      'imports validated snapshots and rejects corrupt uploads without changing data',
+      async () => {
+        const exported = await fetch(server.url + `/api/databases/${first}/export`, {
+          headers: { Cookie: cookie },
+        });
+        const bytes = Buffer.from(await exported.arrayBuffer());
+        const importFile = (body) =>
+          fetch(server.url + `/api/databases/${second}/import`, {
+            method: 'POST',
+            headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/vnd.sqlite3' },
+            body,
+          });
+        assert.equal((await importFile(bytes)).status, 200);
+        assert.deepEqual((await query('SELECT title FROM notes', [], 200, second)).data.rows, [
+          ['A parameterized idea'],
+        ]);
+        assert.equal((await importFile(Buffer.from('not a database'))).status, 400);
+        assert.equal(
+          (await importFile(Buffer.concat([bytes.subarray(0, 16), Buffer.alloc(100)]))).status,
+          400,
+        );
+        assert.deepEqual((await query('SELECT title FROM notes', [], 200, second)).data.rows, [
+          ['A parameterized idea'],
+        ]);
+      },
+    );
+    await t.test(
       'exports a SQLite file and preserves data and sessions across restart',
       async () => {
         const exported = await fetch(server.url + `/api/databases/${first}/export`, {

@@ -248,6 +248,23 @@ export default function App() {
       );
     });
   }
+  async function connectProjects() {
+    await act('Preparing project connections', async () => {
+      const credentials = await api('/integrations/projects', { method: 'POST', body: '{}' });
+      const url = URL.createObjectURL(
+        new Blob([JSON.stringify(credentials, null, 2)], { type: 'application/json' }),
+      );
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'drivebase-project-credentials.json';
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      await refreshDatabases();
+      setNotice(
+        'Project databases are ready. Keep the downloaded connection file private; it grants each app access to its own database.',
+      );
+    });
+  }
   async function createDatabase(event: FormEvent) {
     event.preventDefault();
     await act('Creating database', async () => {
@@ -676,6 +693,24 @@ export default function App() {
                     <p>
                       Choose the folder you want new databases saved in. Existing database files are
                       not moved.
+                    </p>
+                    <button
+                      className="secondary"
+                      disabled={!!busy}
+                      onClick={connectProjects}
+                      style={{ marginTop: 16 }}
+                    >
+                      {busy === 'Preparing project connections' ? (
+                        <LoaderCircle size={16} className="spin" />
+                      ) : (
+                        <Code2 size={16} />
+                      )}
+                      Connect portfolio, Watchparty and Taskflow
+                    </button>
+                    <p>
+                      Creates a separate database and server credential for each of these three
+                      projects, then downloads their connection file. Clicking again replaces their
+                      previous credentials.
                     </p>
                   </div>
                 )}

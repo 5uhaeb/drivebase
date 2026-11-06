@@ -23,6 +23,7 @@ import { oauth, download, upload, HttpError, googleAccessToken, selectFolder } f
 import { execute, serialized } from './engine.js';
 import { catalogs, type Account } from './catalog.js';
 import { decodeSession, encodeSession } from './session.js';
+import { decodeApplicationKey, isApplicationPath } from './application-key.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -89,9 +90,12 @@ function owned(req: Request, user: User, id: string): DatabaseRecord {
 app.use('/api', (req, res, next) => {
   res.set('Cache-Control', 'no-store');
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
-    if (req.get('origin') !== new URL(config.frontend).origin)
+    const applicationKey = decodeApplicationKey(req.get('authorization')?.replace(/^Bearer /, ''));
+    if (!applicationKey && req.get('origin') !== new URL(config.frontend).origin)
       return next(new HttpError(403, 'Request origin is not allowed.'));
-    if (req.method !== 'DELETE' && !req.is('application/json'))
+    const databaseImport =
+      /^\/databases\/[a-f0-9-]+\/import$/i.test(req.path) && req.is('application/vnd.sqlite3');
+    if (req.method !== 'DELETE' && !databaseImport && !req.is('application/json'))
       return next(new HttpError(415, 'Use application/json.'));
   }
   next();
@@ -102,6 +106,20 @@ app.get('/api/health', (_req, res) =>
 function withAccount(handler: RequestHandler): RequestHandler {
   return async (req, res, next) => {
     if (config.mode !== 'google') return handler(req, res, next);
+    const applicationKey = decodeApplicationKey(req.get('authorization')?.replace(/^Bearer /, ''));
+    if (applicationKey) {
+      if (!isApplicationPath(applicationKey, req.path))
+        throw new HttpError(403, 'Application key cannot access this resource.');
+      return serialized(`account:${applicationKey.user.id}`, async () => {
+        const account = await catalogs.authenticateApplication(applicationKey);
+        requestAccounts.set(req, account);
+        try {
+          return await handler(req, res, next);
+        } finally {
+          requestAccounts.delete(req);
+        }
+      });
+    }
     const optional = ['/api/auth/me', '/api/auth/logout'].includes(req.path);
     const session = decodeSession(req.cookies.drivebase_session);
     if (!session) {
@@ -252,6 +270,36 @@ accountRoutes.put('/api/drive/folder', async (req, res) => {
   await saveAccount(req);
   res.json({ user: publicUser(user) });
 });
+accountRoutes.post('/api/integrations/projects', async (req, res) => {
+  const user = currentUser(req);
+  const account = requestAccounts.get(req);
+  if (!account || config.mode !== 'google') throw new HttpError(400, 'Google sign-in is required.');
+  const projects: Record<string, unknown> = {};
+  for (const name of ['portfolio', 'watchparty', 'taskflow']) {
+    let record = Object.values(account.catalog.databases).find((db) => db.name === name);
+    if (!record) {
+      if (Object.keys(account.catalog.databases).length >= 10)
+        throw new HttpError(400, 'The account database limit has been reached.');
+      const created = await execute(undefined, { type: 'create' });
+      const fileId = await upload(user, name, created.bytes);
+      const now = new Date().toISOString();
+      record = {
+        id: randomUUID(),
+        ownerId: user.id,
+        name,
+        fileId,
+        size: created.bytes.length,
+        createdAt: now,
+        updatedAt: now,
+      };
+      account.catalog.databases[record.id] = record;
+      await catalogs.save(account);
+    }
+    const apiKey = await catalogs.issueApplication(account, record.id, name);
+    projects[name] = { databaseId: record.id, apiKey };
+  }
+  res.json({ version: 1, apiUrl: config.frontend + '/api', projects });
+});
 app.use('/api/databases', (_req, res, next) => {
   res.set('Cache-Control', 'no-store');
   next();
@@ -322,6 +370,27 @@ async function operation(req: Request, res: Response, action: Record<string, unk
 }
 accountRoutes.get('/api/databases/:id/schema', (req, res) =>
   operation(req, res, { type: 'schema' }),
+);
+app.post(
+  '/api/databases/:id/import',
+  express.raw({ type: 'application/vnd.sqlite3', limit: config.maxBytes }),
+  withAccount(async (req, res) => {
+    const user = currentUser(req);
+    const record = owned(req, user, String(req.params.id));
+    if (
+      !Buffer.isBuffer(req.body) ||
+      req.body.subarray(0, 16).toString() !== 'SQLite format 3\u0000'
+    )
+      throw new HttpError(400, 'Upload a valid SQLite database.');
+    await serialized(`db:${record.id}`, async () => {
+      const checked = await execute(req.body, { type: 'schema' });
+      await upload(user, record.name, checked.bytes, record.fileId);
+      record.size = checked.bytes.length;
+      record.updatedAt = new Date().toISOString();
+      await saveAccount(req);
+      res.json({ database: record, persisted: true, ...checked.result });
+    });
+  }),
 );
 accountRoutes.post('/api/databases/:id/query', (req, res) => {
   const body = z

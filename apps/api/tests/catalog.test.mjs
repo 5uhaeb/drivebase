@@ -15,6 +15,7 @@ process.env.TOKEN_ENCRYPTION_KEY = randomBytes(32).toString('base64');
 const { createCatalogStore } = await import('../dist/catalog.js');
 const { encodeSession, decodeSession, sessionKey } = await import('../dist/session.js');
 const { seal } = await import('../dist/store.js');
+const { decodeApplicationKey, isApplicationPath } = await import('../dist/application-key.js');
 after(() => {
   assert.deepEqual(readdirSync(directory), []);
   rmdirSync(directory);
@@ -167,4 +168,34 @@ test('failed catalog upload is reported and does not erase previously saved meta
   await assert.rejects(store.save(account), /Drive upload failed/);
   const recovered = await createCatalogStore(storage).authenticate(session);
   assert.equal(recovered.user.folderId, 'test_folder');
+});
+
+test('application credentials stay scoped to one database and survive browser logout', async () => {
+  const { storage, user } = fixture();
+  const store = createCatalogStore(storage);
+  const account = await store.signIn(user);
+  const id = randomUUID();
+  account.catalog.databases[id] = {
+    id,
+    ownerId: user.id,
+    name: 'portfolio',
+    fileId: 'portfolio_file',
+    size: 0,
+    createdAt: '',
+    updatedAt: '',
+  };
+  const encoded = await store.issueApplication(account, id, 'portfolio');
+  const key = decodeApplicationKey(encoded);
+  assert.ok(key);
+  assert.equal(decodeSession(encoded), null);
+  assert.equal(isApplicationPath(key, `/api/databases/${id}/schema`), true);
+  assert.equal(isApplicationPath(key, `/api/databases/${randomUUID()}/query`), false);
+  assert.equal(isApplicationPath(key, '/api/integrations/projects'), false);
+  const authenticated = await store.authenticateApplication(key);
+  assert.equal(authenticated.applicationDatabaseId, id);
+  await store.signOut(account);
+  assert.equal((await store.authenticateApplication(key)).applicationDatabaseId, id);
+  await store.issueApplication(account, id, 'portfolio');
+  await assert.rejects(store.authenticateApplication(key), (error) => error.status === 401);
+  assert.equal(decodeApplicationKey(encoded.slice(0, -10) + 'tampered'), null);
 });

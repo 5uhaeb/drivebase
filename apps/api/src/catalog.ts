@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { User } from './store.js';
 import { driveRequest, ensureFolder, HttpError } from './storage.js';
 import { newSessionId, sessionKey, type GoogleSession } from './session.js';
+import { encodeApplicationKey, type ApplicationKey } from './application-key.js';
 
 const databaseSchema = z.object({
   id: z.string().uuid(),
@@ -22,6 +23,16 @@ const catalogSchema = z.object({
   folderName: z.string().max(500).optional(),
   databases: z.record(z.string(), databaseSchema),
   sessions: z.record(z.string(), z.number().int().positive()),
+  apiKeys: z
+    .record(
+      z.string(),
+      z.object({
+        name: z.string().max(64),
+        databaseId: z.string().uuid(),
+        expires: z.number().int().positive(),
+      }),
+    )
+    .default({}),
 });
 export type Catalog = z.infer<typeof catalogSchema>;
 export interface Account {
@@ -30,6 +41,7 @@ export interface Account {
   catalogId: string;
   sessionId: string;
   expires: number;
+  applicationDatabaseId?: string;
 }
 // Storage injection allows persistence and recovery to be tested without a Google account.
 export interface CatalogStorage {
@@ -151,6 +163,7 @@ export function createCatalogStore(storage: CatalogStorage = googleCatalogs) {
           folderName: user.folderName,
           databases: {},
           sessions: {},
+          apiKeys: {},
         };
       }
       for (const [key, expires] of Object.entries(catalog.sessions))
@@ -177,6 +190,41 @@ export function createCatalogStore(storage: CatalogStorage = googleCatalogs) {
       user.folderId = catalog.folderId;
       user.folderName = catalog.folderName;
       return { user, catalog, catalogId: session.catalogId, sessionId: session.sessionId, expires };
+    },
+    async authenticateApplication(key: ApplicationKey): Promise<Account> {
+      const user: User = { ...key.user };
+      const catalog = validate(await storage.read(user, key.catalogId), user);
+      const saved = catalog.apiKeys[sessionKey(key.keyId)];
+      if (
+        !saved ||
+        saved.databaseId !== key.databaseId ||
+        saved.expires !== key.expires ||
+        saved.expires <= Date.now() ||
+        !catalog.databases[key.databaseId]
+      )
+        throw new HttpError(401, 'Application key is expired or revoked.');
+      user.folderId = catalog.folderId;
+      user.folderName = catalog.folderName;
+      return {
+        user,
+        catalog,
+        catalogId: key.catalogId,
+        sessionId: key.keyId,
+        expires: key.expires,
+        applicationDatabaseId: key.databaseId,
+      };
+    },
+    async issueApplication(account: Account, databaseId: string, name: string) {
+      if (!account.catalog.databases[databaseId]) throw new HttpError(404, 'Database not found.');
+      for (const [hash, key] of Object.entries(account.catalog.apiKeys))
+        if (key.name === name && key.databaseId === databaseId)
+          delete account.catalog.apiKeys[hash];
+      const keyId = newSessionId();
+      const expires = Date.now() + 180 * 86400000;
+      account.catalog.apiKeys[sessionKey(keyId)] = { databaseId, name, expires };
+      const key = encodeApplicationKey(account.user, account.catalogId, databaseId, keyId, expires);
+      await storage.write(account.user, account.catalog, account.catalogId);
+      return key;
     },
     async save(account: Account) {
       account.catalog.folderId = account.user.folderId;

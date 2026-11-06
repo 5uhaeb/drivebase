@@ -2,15 +2,16 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { seal, unseal, digest, type User } from './store.js';
 
+export const credentialUserSchema = z.object({
+  id: z.string().min(1).max(128),
+  email: z.string().email().max(320),
+  name: z.string().max(200),
+  picture: z.string().max(500).optional(),
+  refreshToken: z.string().min(1).max(1500),
+});
 const sessionSchema = z.object({
   version: z.literal(1),
-  user: z.object({
-    id: z.string().min(1).max(128),
-    email: z.string().email().max(320),
-    name: z.string().max(200),
-    picture: z.string().max(500).optional(),
-    refreshToken: z.string().min(1).max(1500),
-  }),
+  user: credentialUserSchema,
   catalogId: z.string().regex(/^[a-zA-Z0-9_-]{1,200}$/),
   sessionId: z.string().min(32).max(100),
   expires: z.number().int().positive(),
