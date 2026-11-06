@@ -1,12 +1,12 @@
 # Deployment
 
-The frontend and backend must use the same `main` source revision. The database server must run as a single Render instance with a persistent disk. A paid Render plan is needed for that disk; check current pricing before deployment.
+The frontend and backend use the same application source on `main`. Run one Render API instance and one Node process. The free-hosting design stores each account's database files, catalog, and session registry in Google Drive. No paid disk or separate metadata database is required.
 
 ## Setup-only preview
 
 Until Google credentials are available, the public preview uses `AUTH_MODE=setup` on a free Render instance. This mode disables Google sign-in, rejects the demo login, and rejects database operations. The frontend explicitly displays that Drive setup is pending. No account credentials or database data are accepted in this mode, so a persistent disk is not needed yet. Free Render services can sleep when idle; the first page load may wait for the backend to start.
 
-Before changing to `AUTH_MODE=google`, move the backend to a paid plan, attach the persistent disk at `/var/data`, set `DATA_DIR=/var/data`, configure the Google credentials and token encryption key, and register the exact frontend callback URL. Do not enable user accounts on ephemeral control storage. The root `render.yaml` describes the full Google-enabled deployment rather than the temporary free preview.
+Before changing to `AUTH_MODE=google`, configure the Google credentials and stable token encryption key, and register the exact frontend callback URL. The same free service can run Google mode: its account metadata is stored in Drive. `DATA_DIR` is used only by local demo mode.
 
 ## Google setup
 
@@ -32,12 +32,12 @@ Sharing a personal Drive folder with a service account is not the authentication
 
 ## Render backend
 
-1. Connect the private GitHub repository to Render.
-2. Create a Blueprint from the root `render.yaml`. It configures one Node service, a 1 GiB persistent disk, and the API health endpoint.
+1. Connect the GitHub repository to Render.
+2. Create a Blueprint from the root `render.yaml`. It configures one free Node service and the API health endpoint, with no persistent disk.
 3. Set `FRONTEND_URL` to the exact frontend origin, without a trailing slash.
 4. Set `GOOGLE_REDIRECT_URI` to that origin plus `/api/auth/google/callback`.
 5. Add the Google client credentials and the generated encryption key.
-6. Confirm `NODE_ENV=production`, `AUTH_MODE=google`, and `DATA_DIR=/var/data`.
+6. Confirm `NODE_ENV=production` and `AUTH_MODE=google`. Google mode does not write credentials or account metadata to the server filesystem.
 7. Record the actual Render service URL. It may differ from the suggested `drivebase-api.onrender.com` name.
 
 Build: `npm ci --include=dev && npm run build -w apps/api`
@@ -46,7 +46,9 @@ Start: `npm run start -w apps/api`
 
 Health: `/api/health`
 
-Do not enable horizontal scaling or add a Node process manager with multiple workers. Preserve the disk and encryption key across redeployments. Render disks impose deployment downtime; this prototype accepts that limitation.
+Do not enable horizontal scaling or multiple Node workers. Preserve the encryption key across redeployments. The current public-repository backend uses manual deployments; trigger a Render deploy after backend changes. The catalog is discovered by app properties in the user's Drive on a fresh sign-in, so redeploying does not erase account data.
+
+Google-mode session cookies contain an authenticated, encrypted Google credential that only Render can decrypt. The browser cookie is HTTP-only and secure in production; refresh tokens are not available to frontend JavaScript. The private Drive catalog stores hashes of random session IDs and their expiries, so logout revokes a copied cookie as well. The Picker receives a separate short-lived access token. Browser cookies are needed for interactive access; unattended jobs are not supported in this version.
 
 ## Vercel frontend
 
@@ -73,7 +75,7 @@ Preview domains require matching Google redirect URIs and backend frontend-origi
 | `GOOGLE_CLIENT_ID`     | Google OAuth web client ID                                                      |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth web client secret                                                  |
 | `TOKEN_ENCRYPTION_KEY` | Base64 encoding of 32 random bytes                                              |
-| `DATA_DIR`             | Durable metadata directory; `/var/data` on Render                               |
+| `DATA_DIR`             | Local demo files only; ignored for Google-mode account metadata                 |
 | `MAX_DATABASE_BYTES`   | Default and maximum 10485760, 10 MiB; may be lowered to at least 16 KiB         |
 | `QUERY_TIMEOUT_MS`     | Default 5000                                                                    |
 

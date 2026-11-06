@@ -1,4 +1,9 @@
-import express, { type Request, type Response, type NextFunction } from 'express';
+import express, {
+  type Request,
+  type Response,
+  type NextFunction,
+  type RequestHandler,
+} from 'express';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
@@ -14,16 +19,10 @@ import {
   type User,
   type DatabaseRecord,
 } from './store.js';
-import {
-  oauth,
-  ensureFolder,
-  download,
-  upload,
-  HttpError,
-  googleAccessToken,
-  selectFolder,
-} from './storage.js';
+import { oauth, download, upload, HttpError, googleAccessToken, selectFolder } from './storage.js';
 import { execute, serialized } from './engine.js';
+import { catalogs, type Account } from './catalog.js';
+import { decodeSession, encodeSession } from './session.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -41,6 +40,25 @@ const cookie = {
   sameSite: 'lax' as const,
   path: '/api',
 };
+const requestAccounts = new WeakMap<Request, Account>();
+function databaseRecords(req: Request): Record<string, DatabaseRecord> {
+  return requestAccounts.get(req)?.catalog.databases || state.databases;
+}
+async function saveAccount(req: Request) {
+  const account = requestAccounts.get(req);
+  if (account) await catalogs.save(account);
+  else persist();
+}
+function setGoogleCookie(res: Response, account: Account) {
+  res.cookie(
+    'drivebase_session',
+    encodeSession(account.user, account.catalogId, account.sessionId, account.expires),
+    {
+      ...cookie,
+      maxAge: Math.max(0, account.expires - Date.now()),
+    },
+  );
+}
 const publicUser = (user: User) => ({
   id: user.id,
   name: user.name,
@@ -52,14 +70,19 @@ const publicUser = (user: User) => ({
 function currentUser(req: Request): User {
   if (config.mode === 'setup')
     throw new HttpError(503, 'Sign-in is disabled while Google Drive setup is pending.');
+  if (config.mode === 'google') {
+    const account = requestAccounts.get(req);
+    if (!account) throw new HttpError(401, 'Sign in to continue.');
+    return account.user;
+  }
   const token = req.cookies.drivebase_session;
   const session = typeof token === 'string' ? state.sessions[digest(token)] : undefined;
   if (!session || session.expires < Date.now() || !state.users[session.userId])
     throw new HttpError(401, 'Sign in to continue.');
   return state.users[session.userId];
 }
-function owned(user: User, id: string): DatabaseRecord {
-  const record = state.databases[id];
+function owned(req: Request, user: User, id: string): DatabaseRecord {
+  const record = databaseRecords(req)[id];
   if (!record || record.ownerId !== user.id) throw new HttpError(404, 'Database not found.');
   return record;
 }
@@ -76,7 +99,42 @@ app.use('/api', (req, res, next) => {
 app.get('/api/health', (_req, res) =>
   res.json({ status: 'ok', mode: config.mode, version: '0.1.0' }),
 );
-app.get('/api/auth/me', (req, res) => {
+function withAccount(handler: RequestHandler): RequestHandler {
+  return async (req, res, next) => {
+    if (config.mode !== 'google') return handler(req, res, next);
+    const optional = ['/api/auth/me', '/api/auth/logout'].includes(req.path);
+    const session = decodeSession(req.cookies.drivebase_session);
+    if (!session) {
+      if (optional) return handler(req, res, next);
+      throw new HttpError(401, 'Sign in to continue.');
+    }
+    // Lock the complete handler, including storage writes, even if the client disconnects.
+    return serialized(`account:${session.user.id}`, async () => {
+      let account: Account;
+      try {
+        account = await catalogs.authenticate(session);
+      } catch (error) {
+        if (optional && error instanceof HttpError && error.status === 401)
+          return handler(req, res, next);
+        throw error;
+      }
+      requestAccounts.set(req, account);
+      setGoogleCookie(res, account);
+      try {
+        return await handler(req, res, next);
+      } finally {
+        requestAccounts.delete(req);
+      }
+    });
+  };
+}
+const accountRoutes = {
+  get: (path: string, handler: RequestHandler) => app.get(path, withAccount(handler)),
+  post: (path: string, handler: RequestHandler) => app.post(path, withAccount(handler)),
+  put: (path: string, handler: RequestHandler) => app.put(path, withAccount(handler)),
+  delete: (path: string, handler: RequestHandler) => app.delete(path, withAccount(handler)),
+};
+accountRoutes.get('/api/auth/me', (req, res) => {
   let user: User | null = null;
   try {
     user = currentUser(req);
@@ -137,18 +195,18 @@ app.get('/api/auth/google/callback', async (req, res) => {
     if (!profile?.sub || !profile.email || !profile.email_verified)
       throw new Error('A verified Google email is required');
     const user: User = {
-      ...state.users[profile.sub],
       id: profile.sub,
       email: profile.email,
       name: profile.name || profile.email,
       picture: profile.picture,
     };
     if (tokens.refresh_token) user.refreshToken = seal(tokens.refresh_token);
+    const priorSession = decodeSession(req.cookies.drivebase_session);
+    if (!user.refreshToken && priorSession?.user.id === user.id)
+      user.refreshToken = priorSession.user.refreshToken;
     if (!user.refreshToken) throw new Error('Offline access was not granted');
-    state.users[user.id] = user;
-    persist();
-    await serialized(`folder:${user.id}`, () => ensureFolder(user));
-    res.cookie('drivebase_session', createSession(user.id), { ...cookie, maxAge: 7 * 86400000 });
+    const account = await serialized(`account:${user.id}`, () => catalogs.signIn(user));
+    setGoogleCookie(res, account);
     res.redirect(config.frontend);
   } catch (error) {
     console.error(
@@ -158,13 +216,17 @@ app.get('/api/auth/google/callback', async (req, res) => {
     res.redirect(`${config.frontend}/?error=google_connection_failed`);
   }
 });
-app.post('/api/auth/logout', (req, res) => {
-  if (typeof req.cookies.drivebase_session === 'string')
-    delete state.sessions[digest(req.cookies.drivebase_session)];
-  persist();
+accountRoutes.post('/api/auth/logout', async (req, res) => {
+  const account = requestAccounts.get(req);
+  if (account) await catalogs.signOut(account);
+  else if (config.mode === 'demo') {
+    if (typeof req.cookies.drivebase_session === 'string')
+      delete state.sessions[digest(req.cookies.drivebase_session)];
+    persist();
+  }
   res.clearCookie('drivebase_session', cookie).json({ success: true });
 });
-app.post('/api/drive/picker', async (req, res) => {
+accountRoutes.post('/api/drive/picker', async (req, res) => {
   const user = currentUser(req);
   if (config.mode !== 'google')
     throw new HttpError(400, 'Folder selection requires Google sign-in.');
@@ -179,7 +241,7 @@ app.post('/api/drive/picker', async (req, res) => {
     projectNumber: config.googleProjectNumber,
   });
 });
-app.put('/api/drive/folder', async (req, res) => {
+accountRoutes.put('/api/drive/folder', async (req, res) => {
   const user = currentUser(req);
   if (config.mode !== 'google')
     throw new HttpError(400, 'Folder selection requires Google sign-in.');
@@ -187,21 +249,22 @@ app.put('/api/drive/folder', async (req, res) => {
     .object({ folderId: z.string().regex(/^[a-zA-Z0-9_-]{1,200}$/) })
     .parse(req.body);
   await serialized(`folder:${user.id}`, () => selectFolder(user, folderId));
+  await saveAccount(req);
   res.json({ user: publicUser(user) });
 });
 app.use('/api/databases', (_req, res, next) => {
   res.set('Cache-Control', 'no-store');
   next();
 });
-app.get('/api/databases', (req, res) => {
+accountRoutes.get('/api/databases', (req, res) => {
   const user = currentUser(req);
   res.json({
-    databases: Object.values(state.databases)
+    databases: Object.values(databaseRecords(req))
       .filter((db) => db.ownerId === user.id)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
   });
 });
-app.post('/api/databases', async (req, res) => {
+accountRoutes.post('/api/databases', async (req, res) => {
   const user = currentUser(req);
   const { name } = z
     .object({
@@ -214,7 +277,7 @@ app.post('/api/databases', async (req, res) => {
     })
     .parse(req.body);
   const record = await serialized(`folder:${user.id}`, async () => {
-    if (Object.values(state.databases).filter((db) => db.ownerId === user.id).length >= 10)
+    if (Object.values(databaseRecords(req)).filter((db) => db.ownerId === user.id).length >= 10)
       throw new HttpError(400, 'The MVP supports up to 10 databases per account.');
     const created = await execute(undefined, { type: 'create' });
     const fileId = await upload(user, name, created.bytes);
@@ -228,15 +291,15 @@ app.post('/api/databases', async (req, res) => {
       createdAt: now,
       updatedAt: now,
     };
-    state.databases[record.id] = record;
-    persist();
+    databaseRecords(req)[record.id] = record;
+    await saveAccount(req);
     return record;
   });
   res.status(201).json({ database: record });
 });
 async function operation(req: Request, res: Response, action: Record<string, unknown>) {
   const user = currentUser(req);
-  const record = owned(user, String(req.params.id));
+  const record = owned(req, user, String(req.params.id));
   const payload = await serialized(`db:${record.id}`, async () => {
     const bytes = await download(user, record.fileId);
     if (bytes.length > config.maxBytes)
@@ -246,7 +309,7 @@ async function operation(req: Request, res: Response, action: Record<string, unk
       await upload(user, record.name, output.bytes, record.fileId);
       record.size = output.bytes.length;
       record.updatedAt = new Date().toISOString();
-      persist();
+      await saveAccount(req);
     }
     return {
       ...output.result,
@@ -257,8 +320,10 @@ async function operation(req: Request, res: Response, action: Record<string, unk
   });
   res.json(payload);
 }
-app.get('/api/databases/:id/schema', (req, res) => operation(req, res, { type: 'schema' }));
-app.post('/api/databases/:id/query', (req, res) => {
+accountRoutes.get('/api/databases/:id/schema', (req, res) =>
+  operation(req, res, { type: 'schema' }),
+);
+accountRoutes.post('/api/databases/:id/query', (req, res) => {
   const body = z
     .object({
       sql: z.string().trim().min(1).max(20000),
@@ -272,32 +337,37 @@ app.post('/api/databases/:id/query', (req, res) => {
 });
 const collectionName = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/);
 const documentId = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
-app.get('/api/databases/:id/collections/:collection/documents', (req, res) =>
+accountRoutes.get('/api/databases/:id/collections/:collection/documents', (req, res) =>
   operation(req, res, {
     type: 'list-documents',
     collection: collectionName.parse(req.params.collection),
     offset: z.coerce.number().int().min(0).max(100000).default(0).parse(req.query.offset),
   }),
 );
-app.put('/api/databases/:id/collections/:collection/documents/:documentId', (req, res) => {
-  const { data } = z.object({ data: z.record(z.string(), z.unknown()) }).parse(req.body);
-  return operation(req, res, {
-    type: 'put-document',
-    collection: collectionName.parse(req.params.collection),
-    id: documentId.parse(req.params.documentId),
-    data,
-  });
-});
-app.delete('/api/databases/:id/collections/:collection/documents/:documentId', (req, res) =>
-  operation(req, res, {
-    type: 'delete-document',
-    collection: collectionName.parse(req.params.collection),
-    id: documentId.parse(req.params.documentId),
-  }),
+accountRoutes.put(
+  '/api/databases/:id/collections/:collection/documents/:documentId',
+  (req, res) => {
+    const { data } = z.object({ data: z.record(z.string(), z.unknown()) }).parse(req.body);
+    return operation(req, res, {
+      type: 'put-document',
+      collection: collectionName.parse(req.params.collection),
+      id: documentId.parse(req.params.documentId),
+      data,
+    });
+  },
 );
-app.get('/api/databases/:id/export', async (req, res) => {
+accountRoutes.delete(
+  '/api/databases/:id/collections/:collection/documents/:documentId',
+  (req, res) =>
+    operation(req, res, {
+      type: 'delete-document',
+      collection: collectionName.parse(req.params.collection),
+      id: documentId.parse(req.params.documentId),
+    }),
+);
+accountRoutes.get('/api/databases/:id/export', async (req, res) => {
   const user = currentUser(req);
-  const record = owned(user, String(req.params.id));
+  const record = owned(req, user, String(req.params.id));
   await serialized(`db:${record.id}`, async () => {
     const bytes = await download(user, record.fileId);
     res

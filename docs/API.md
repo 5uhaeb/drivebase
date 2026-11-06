@@ -1,6 +1,6 @@
 # MVP API
 
-All routes are under `/api`. The dashboard uses the frontend origin's `/api` proxy. Authentication uses an HTTP-only session cookie. There are no developer API keys in this MVP.
+All routes are under `/api`. The dashboard uses the frontend origin's `/api` proxy. Google authentication uses an encrypted HTTP-only session cookie, with a session ID hash and expiry stored in the user's private Drive catalog. The backend reads and validates that catalog before each authenticated request. Local demo sessions use local metadata. There are no developer API keys in this MVP.
 
 Write requests require the exact configured `FRONTEND_URL` Origin header. Requests with bodies require `Content-Type: application/json`. Errors have the shape `{ "error": "message" }`. Rate limit: 120 requests per minute per client IP, including authorization routes.
 

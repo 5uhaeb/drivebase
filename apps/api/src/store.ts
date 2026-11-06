@@ -35,12 +35,15 @@ interface State {
   databases: Record<string, DatabaseRecord>;
   sessions: Record<string, { userId: string; expires: number }>;
 }
-mkdirSync(config.dataDir, { recursive: true });
+if (config.mode === 'demo') mkdirSync(config.dataDir, { recursive: true });
 const path = join(config.dataDir, 'control.json');
-export const state: State = existsSync(path)
-  ? JSON.parse(readFileSync(path, 'utf8'))
-  : { users: {}, databases: {}, sessions: {} };
+export const state: State =
+  config.mode === 'demo' && existsSync(path)
+    ? JSON.parse(readFileSync(path, 'utf8'))
+    : { users: {}, databases: {}, sessions: {} };
 export function persist() {
+  if (config.mode !== 'demo')
+    throw new Error('Local metadata writes are only available in demo mode.');
   const temporary = `${path}.tmp`;
   // Windows requires a writable handle for fsync/FlushFileBuffers.
   const fd = openSync(temporary, 'w', 0o600);

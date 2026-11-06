@@ -14,10 +14,10 @@ The hosted preview can run in `AUTH_MODE=setup`. This displays the public landin
 - Downloadable SQLite databases.
 - Google Picker folder selection for saving new databases in an existing writable folder.
 - Google sign-in plus `drive.file` consent; a visible `Drivebase` folder created in the user's Drive.
-- Encrypted refresh tokens, opaque hashed sessions, tenant ownership checks, and request origin validation.
-- Per-database request serialization and isolated query workers with a timeout.
+- Encrypted HTTP-only login cookies, durable session revocation, tenant ownership checks, and request origin validation.
+- Per-account request serialization and isolated query workers with a timeout.
 - Local development mode with filesystem storage and no Google credentials.
-- Vercel configuration and a Render Blueprint with a persistent control-data disk.
+- Vercel configuration and a free Render Blueprint; Google-mode metadata lives in Drive.
 
 ## Run locally
 
@@ -49,8 +49,9 @@ flowchart LR
     Render --> Google[Google identity and Drive APIs]
     Render --> Worker[Isolated SQLite query worker]
     Worker --> Render
-    Render --> Drive[User's Drivebase folder / SQLite files]
-    Render --> Disk[Persistent control metadata / encrypted tokens]
+    Render --> Drive[User's Drivebase folder / SQLite files and catalog]
+    Browser --> Session[Encrypted HTTP-only session cookie]
+    Session --> Render
 ```
 
 The API downloads the selected database for each operation, executes against an in-memory SQLite working copy, and uploads changed bytes before responding with success. Working database copies are not treated as durable. JSON collections use a private SQLite table and a separate HTTP interface; this is document CRUD, not MongoDB wire-protocol compatibility.
@@ -63,11 +64,12 @@ The UI is React with Vite. Vercel hosts static assets and proxies `/api` to Rend
 - Default database limit: **10 MiB**; account limit: **10 databases**. The limit can be lowered through configuration; this prototype caps it at 10 MiB and applies a matching SQLite page limit.
 - Each operation transfers the whole SQLite file. Large or write-heavy databases are unsuitable for this design.
 - SQL supports one statement per request, with up to 500 returned rows, a default five-second worker timeout, and a 128 MiB JS heap limit per worker. WASM memory is not fully governed by the JS heap limit; strict total-memory isolation is future work.
-- Concurrent requests for one database are serialized. External edits, multiple writers, and cross-file transactions are unsupported.
+- Google-mode requests for one account are serialized from catalog read through completed storage writes, including requests whose client disconnects. External edits, multiple backend instances, and cross-file transactions are unsupported.
 - A failed/timed-out Drive upload can have an uncertain outcome. Refresh and read back before retrying. There is no exactly-once request protocol or automatic write retry.
-- Session expiry is seven days. Revoked Google access requires reconnecting. Refresh tokens stay encrypted on the backend; Google's browser folder picker receives a short-lived access token.
-- Control metadata is an atomic JSON file on the Render disk, rather than a separate Postgres service. It includes users, encrypted tokens, hashed sessions, and the database catalog. Back up this disk separately: losing it loses account-to-file mappings and sessions. Database files remain in Drive, but catalog recovery/import is not implemented.
-- The server needs a stable `TOKEN_ENCRYPTION_KEY`. Changing or losing it makes existing refresh tokens unreadable; users must reconnect.
+- Session expiry is seven days, with up to 20 active sessions per account. A session cookie contains an authenticated, encrypted Google credential that only the backend can decrypt. It is HTTP-only and secure in production. The Drive catalog stores hashes of random session IDs and expiries, so logout also invalidates a copied cookie. Google's browser folder picker receives a separate short-lived access token.
+- Google mode stores database locations, destination folder preferences, and session records in a private, app-created **drivebase-catalog.json** file in Drive. It does not write account metadata or credentials to Render's filesystem. Signing in again discovers the catalog by its app properties after a restart or a cleared browser session. Do not delete or share this catalog; a deleted catalog cannot be rebuilt from database files automatically.
+- Keep `TOKEN_ENCRYPTION_KEY` stable in Render's secret settings. Changing it requires users to sign in again; their Drive catalog and database files remain available. Browser cookies are needed for interactive access; unattended jobs and API keys are outside this version.
+- The catalog initially lives in the app-created Drivebase folder. Choosing another database folder changes the destination of new databases without moving the catalog or existing files. If a new database upload succeeds but its catalog update fails, an unlisted file may remain in Drive; there is no cross-file transaction.
 - User-created SQL triggers are not supported. JSON editing accepts object documents, with a 256 KiB request limit and 100 documents per list page.
 - API keys, a public SDK, database deletion/import, backups/version restore, sharing, and distributed coordination are outside this MVP.
 
@@ -81,5 +83,5 @@ For Google credentials and choosing a specific existing folder, follow the [step
 
 - [Google Drive file-specific permission scope](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)
 - [Google OAuth for web servers](https://developers.google.com/identity/protocols/oauth2/web-server)
-- [Render persistent disks](https://render.com/docs/disks)
+- [Render free services](https://render.com/docs/free)
 - [sql.js SQLite engine](https://sql.js.org/)

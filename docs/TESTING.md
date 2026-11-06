@@ -31,8 +31,8 @@ This checklist is prepared for the testing phase after MVP delivery. It is not a
 - [ ] Confirm Vercel API rewrites and frontend-domain OAuth callbacks preserve secure session cookies.
 - [ ] Confirm wrong-Origin writes and unauthenticated operations fail.
 - [ ] Confirm production rejects AUTH_MODE=demo and missing Google/encryption settings.
-- [ ] Confirm only one Render instance/process runs and the metadata disk is persistent.
+- [ ] Confirm only one Render instance/process runs and the catalog is stored in Drive, with no Google-mode account metadata written to the server filesystem.
 - [ ] Redeploy Render and verify Drive data, catalog, encrypted tokens, and sessions remain usable.
 - [ ] Exercise simultaneous writes against the same database and verify serialization within the one API process.
 - [ ] Measure read/write latency and API quotas with representative databases before choosing workload limits.
-- [ ] Verify metadata backup and recovery procedures; catalog rebuild from Drive is not implemented.
+- [ ] Verify a fresh sign-in finds the existing Drive catalog after a server restart. Deleting the catalog and rebuilding it from database files is not supported.

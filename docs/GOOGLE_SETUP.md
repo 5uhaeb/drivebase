@@ -46,13 +46,13 @@ In the **same Cloud project**, open **APIs & Services → Credentials → Create
 - Under **API restrictions**, restrict the key to **Google Picker API**.
 - Keep the generated key and project number for the backend configuration.
 
-This browser API key is used by Google's picker. It is separate from the OAuth client secret. The picker also receives a short-lived access token; refresh tokens remain encrypted on Render.
+This browser API key is used by Google's picker. It is separate from the OAuth client secret. The picker also receives a short-lived access token; the Google refresh token is carried in an encrypted HTTP-only session cookie that only Render can decrypt.
 
 ## 4. Configure Render before enabling accounts
 
 The current free backend runs with `AUTH_MODE=setup`, which disables sign-in. Before enabling Google mode:
 
-1. Add a persistent disk at `/var/data` on an appropriate paid Render plan, and set `DATA_DIR=/var/data`.
+1. Keep the service on the **Free** plan with one instance. The database catalog and session registry are stored in Drive, so a persistent Render disk is unnecessary.
 2. Configure these variables on the **drivebase-api** Render service:
 
 | Variable                      | Value                                                          |

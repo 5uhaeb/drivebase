@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { config } from './config.js';
-import { persist, seal, unseal, type User } from './store.js';
+import { seal, unseal, type User } from './store.js';
 
 export const oauth = () => new OAuth2Client(config.clientId, config.clientSecret, config.redirect);
 export class HttpError extends Error {
@@ -21,7 +21,6 @@ export async function googleAccessToken(user: User): Promise<string> {
   client.on('tokens', (tokens) => {
     if (tokens.refresh_token) {
       user.refreshToken = seal(tokens.refresh_token);
-      persist();
     }
   });
   let access: string | null | undefined;
@@ -33,7 +32,7 @@ export async function googleAccessToken(user: User): Promise<string> {
   if (!access) throw new HttpError(401, 'Reconnect your Google account.');
   return access;
 }
-async function drive(user: User, path: string, init: RequestInit = {}) {
+export async function driveRequest(user: User, path: string, init: RequestInit = {}) {
   const access = await googleAccessToken(user);
   const response = await fetch(`https://www.googleapis.com/${path}`, {
     ...init,
@@ -59,7 +58,7 @@ async function drive(user: User, path: string, init: RequestInit = {}) {
 export async function ensureFolder(user: User) {
   if (config.mode === 'demo') return 'local';
   if (user.folderId) return user.folderId;
-  const response = await drive(user, 'drive/v3/files?fields=id', {
+  const response = await driveRequest(user, 'drive/v3/files?fields=id', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -70,11 +69,10 @@ export async function ensureFolder(user: User) {
   });
   user.folderId = ((await response.json()) as { id: string }).id;
   user.folderName = 'Drivebase';
-  persist();
   return user.folderId;
 }
 export async function selectFolder(user: User, folderId: string) {
-  const response = await drive(
+  const response = await driveRequest(
     user,
     `drive/v3/files/${encodeURIComponent(folderId)}?supportsAllDrives=true&fields=id,name,mimeType,trashed,capabilities(canAddChildren)`,
   );
@@ -91,7 +89,6 @@ export async function selectFolder(user: User, folderId: string) {
     throw new HttpError(403, 'You need permission to create files in this folder.');
   user.folderId = folder.id;
   user.folderName = folder.name;
-  persist();
   return folder;
 }
 function localFile(user: User, id: string) {
@@ -101,7 +98,7 @@ function localFile(user: User, id: string) {
 }
 export async function download(user: User, fileId: string): Promise<Uint8Array> {
   if (config.mode === 'demo') return new Uint8Array(await readFile(localFile(user, fileId)));
-  const response = await drive(
+  const response = await driveRequest(
     user,
     `drive/v3/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`,
   );
@@ -151,7 +148,7 @@ export async function upload(
     bytes,
     Buffer.from(`\r\n--${boundary}--`),
   ]);
-  const response = await drive(
+  const response = await driveRequest(
     user,
     `upload/drive/v3/files${fileId ? `/${encodeURIComponent(fileId)}` : ''}?uploadType=multipart&supportsAllDrives=true&fields=id`,
     {

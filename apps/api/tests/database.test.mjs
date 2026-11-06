@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 const apiDirectory = fileURLToPath(new URL('..', import.meta.url));
 const origin = 'http://localhost:5173';
 async function start(mode, directory) {
-  const frontend = mode === 'setup' ? 'https://drivebase-5uhaeb.vercel.app' : origin;
+  const frontend = mode === 'demo' ? origin : 'https://drivebase-5uhaeb.vercel.app';
   const probe = createServer();
   probe.listen(0, '127.0.0.1');
   await once(probe, 'listening');
@@ -23,12 +23,19 @@ async function start(mode, directory) {
     env: {
       ...process.env,
       AUTH_MODE: mode,
-      NODE_ENV: mode === 'setup' ? 'production' : 'test',
+      NODE_ENV: mode === 'demo' ? 'test' : 'production',
       DATA_DIR: directory,
       PORT: String(port),
       FRONTEND_URL: frontend,
       GOOGLE_REDIRECT_URI: frontend + '/api/auth/google/callback',
       QUERY_TIMEOUT_MS: '5000',
+      ...(mode === 'google'
+        ? {
+            GOOGLE_CLIENT_ID: 'test-client',
+            GOOGLE_CLIENT_SECRET: 'test-secret',
+            TOKEN_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
+          }
+        : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -254,6 +261,36 @@ test('public setup mode cannot authenticate or change Drive configuration', asyn
       assert.equal(response.status, expected);
       assert.equal(response.headers.get('set-cookie'), null);
     }
+  } finally {
+    await server.stop();
+    cleanup(directory);
+  }
+});
+
+test('production Google mode starts without local metadata and requests limited Drive consent', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'drivebase-test-'));
+  const server = await start('google', directory);
+  try {
+    const identity = await fetch(server.url + '/api/auth/me').then((response) => response.json());
+    assert.equal(identity.mode, 'google');
+    assert.equal(identity.user, null);
+    const databases = await fetch(server.url + '/api/databases');
+    assert.equal(databases.status, 401);
+    const consent = await fetch(server.url + '/api/auth/google', { redirect: 'manual' });
+    assert.equal(consent.status, 302);
+    const destination = new URL(consent.headers.get('location'));
+    assert.equal(destination.origin, 'https://accounts.google.com');
+    assert.equal(
+      destination.searchParams.get('redirect_uri'),
+      'https://drivebase-5uhaeb.vercel.app/api/auth/google/callback',
+    );
+    assert.equal(destination.searchParams.get('access_type'), 'offline');
+    const scopes = destination.searchParams.get('scope').split(' ');
+    assert.ok(scopes.includes('https://www.googleapis.com/auth/drive.file'));
+    assert.ok(!scopes.includes('https://www.googleapis.com/auth/drive'));
+    assert.match(consent.headers.get('set-cookie'), /HttpOnly/);
+    assert.match(consent.headers.get('set-cookie'), /Secure/);
+    assert.deepEqual(readdirSync(directory), []);
   } finally {
     await server.stop();
     cleanup(directory);
