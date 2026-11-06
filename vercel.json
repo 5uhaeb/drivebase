@@ -1,0 +1,9 @@
+{
+  "buildCommand": "npm run build -w apps/web",
+  "outputDirectory": "apps/web/dist",
+  "installCommand": "npm ci",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://drivebase-api.onrender.com/api/:path*" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
+}

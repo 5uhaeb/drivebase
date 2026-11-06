@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: drivebase-api
+    runtime: node
+    plan: starter
+    region: singapore
+    numInstances: 1
+    buildCommand: npm ci --include=dev && npm run build -w apps/api
+    startCommand: npm run start -w apps/api
+    healthCheckPath: /api/health
+    disk:
+      name: drivebase-control
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: NODE_ENV
+        value: production
+      - key: AUTH_MODE
+        value: google
+      - key: DATA_DIR
+        value: /var/data
+      - key: FRONTEND_URL
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
