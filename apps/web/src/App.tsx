@@ -46,6 +46,20 @@ const formatBytes = (bytes: number) =>
 const prettyTime = (value: string) =>
   new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 type Tab = 'sql' | 'collections' | 'connection';
+function initialTab(): Tab {
+  const requested = location.hash === '#connection';
+  try {
+    if (requested) {
+      sessionStorage.setItem('drivebase-open-connection', 'yes');
+      history.replaceState({}, '', location.pathname + location.search);
+    }
+    return requested || sessionStorage.getItem('drivebase-open-connection') === 'yes'
+      ? 'connection'
+      : 'sql';
+  } catch {
+    return requested ? 'connection' : 'sql';
+  }
+}
 function Brand() {
   return (
     <div className="brand">
@@ -68,7 +82,7 @@ export default function App() {
   const [databases, setDatabases] = useState<Database[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [schema, setSchema] = useState<Schema>({ tables: [], collections: [] });
-  const [tab, setTab] = useState<Tab>('sql');
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [sql, setSql] = useState(initialSql);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -108,6 +122,9 @@ export default function App() {
         setMode(data.mode);
         setMaxBytes(data.maxDatabaseBytes);
         if (data.user) {
+          try {
+            sessionStorage.removeItem('drivebase-open-connection');
+          } catch {}
           const list = await refreshDatabases();
           if (active) setSelectedId(list[0]?.id || '');
         }
@@ -362,7 +379,7 @@ export default function App() {
       <div className="loading-screen">
         <Brand />
         <LoaderCircle className="spin" />
-        <span>Opening your workspace…</span>
+        <span>Opening your workspace. The server may take a minute to start.</span>
       </div>
     );
   if (!user)
@@ -400,9 +417,19 @@ export default function App() {
                   <GoogleIcon /> Google sign-in coming soon
                 </button>
               ) : (
-                <a className="primary large" href="/api/auth/google">
-                  <GoogleIcon /> Continue with Google <ArrowRight size={18} />
-                </a>
+                <button
+                  className="primary large"
+                  disabled={!!busy}
+                  onClick={() =>
+                    act('Starting Google sign-in', async () => {
+                      await api('/health');
+                      window.location.assign('/api/auth/google');
+                    })
+                  }
+                >
+                  {busy ? <LoaderCircle className="spin" size={18} /> : <GoogleIcon />}
+                  {busy ? 'Starting server…' : 'Continue with Google'} <ArrowRight size={18} />
+                </button>
               )}
               <span>
                 <ShieldCheck size={14} />{' '}
