@@ -19,11 +19,20 @@ import {
   type User,
   type DatabaseRecord,
 } from './store.js';
-import { oauth, download, upload, HttpError, googleAccessToken, selectFolder } from './storage.js';
+import {
+  oauth,
+  download,
+  upload,
+  HttpError,
+  googleAccessToken,
+  selectFolder,
+  assertPrivateApplicationStorage,
+} from './storage.js';
 import { execute, serialized } from './engine.js';
 import { catalogs, type Account } from './catalog.js';
 import { decodeSession, encodeSession } from './session.js';
 import { decodeApplicationKey, isApplicationPath } from './application-key.js';
+import { createIdentityIntent, readIdentityIntent, signIdentity } from './identity.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -175,6 +184,7 @@ app.post('/api/auth/demo', (_req, res) => {
     .json({ user: publicUser(user) });
 });
 app.get('/api/auth/google', (_req, res) => {
+  res.clearCookie('drivebase_identity', cookie);
   if (config.mode === 'setup') return res.redirect(`${config.frontend}/?error=sign_in_disabled`);
   if (config.mode !== 'google')
     return res.redirect(`${config.frontend}/?error=google_not_configured`);
@@ -189,7 +199,24 @@ app.get('/api/auth/google', (_req, res) => {
     }),
   );
 });
+app.get('/api/identity/google', (req, res) => {
+  if (
+    config.mode !== 'google' ||
+    !process.env.TASKFLOW_FRONTEND_URL ||
+    !process.env.TASKFLOW_IDENTITY_SECRET
+  )
+    throw new HttpError(503, 'Taskflow sign-in is not configured yet.');
+  const { state } = z
+    .object({ app: z.literal('taskflow'), state: z.string().regex(/^[A-Za-z0-9_-]{43}$/) })
+    .parse(req.query);
+  const nonce = randomBytes(24).toString('base64url');
+  res.cookie('drivebase_identity', createIdentityIntent(state), { ...cookie, maxAge: 600000 });
+  res.cookie('drivebase_oauth_state', nonce, { ...cookie, maxAge: 600000 });
+  res.redirect(oauth().generateAuthUrl({ state: nonce, scope: ['openid', 'email', 'profile'] }));
+});
 app.get('/api/auth/google/callback', async (req, res) => {
+  const identityIntent = readIdentityIntent(req.cookies.drivebase_identity);
+  res.clearCookie('drivebase_identity', cookie);
   try {
     if (config.mode !== 'google') throw new Error('Google is not configured');
     const expected = req.cookies.drivebase_oauth_state;
@@ -212,6 +239,18 @@ app.get('/api/auth/google/callback', async (req, res) => {
     const profile = ticket.getPayload();
     if (!profile?.sub || !profile.email || !profile.email_verified)
       throw new Error('A verified Google email is required');
+    if (identityIntent) {
+      const target = new URL('/auth/callback', process.env.TASKFLOW_FRONTEND_URL!);
+      target.hash = new URLSearchParams({
+        token: signIdentity(
+          { sub: profile.sub, email: profile.email },
+          identityIntent.state,
+          process.env.TASKFLOW_IDENTITY_SECRET || '',
+        ),
+        state: identityIntent.state,
+      }).toString();
+      return res.redirect(target.toString());
+    }
     const user: User = {
       id: profile.sub,
       email: profile.email,
@@ -231,6 +270,13 @@ app.get('/api/auth/google/callback', async (req, res) => {
       'Google authorization failed:',
       error instanceof Error ? error.message : 'Unknown error',
     );
+    if (identityIntent && process.env.TASKFLOW_FRONTEND_URL)
+      return res.redirect(
+        new URL(
+          '/auth/callback#error=google_connection_failed',
+          process.env.TASKFLOW_FRONTEND_URL,
+        ).toString(),
+      );
     res.redirect(`${config.frontend}/?error=google_connection_failed`);
   }
 });
@@ -275,6 +321,7 @@ accountRoutes.post('/api/integrations/projects', async (req, res) => {
   const account = requestAccounts.get(req);
   if (!account || config.mode !== 'google') throw new HttpError(400, 'Google sign-in is required.');
   const projects: Record<string, unknown> = {};
+  await assertPrivateApplicationStorage(user);
   for (const name of ['portfolio', 'watchparty', 'taskflow']) {
     let record = Object.values(account.catalog.databases).find((db) => db.name === name);
     if (!record) {
@@ -295,6 +342,7 @@ accountRoutes.post('/api/integrations/projects', async (req, res) => {
       account.catalog.databases[record.id] = record;
       await catalogs.save(account);
     }
+    await assertPrivateApplicationStorage(user, record.fileId);
     const apiKey = await catalogs.issueApplication(account, record.id, name);
     projects[name] = { databaseId: record.id, apiKey };
   }
@@ -377,6 +425,7 @@ app.post(
   withAccount(async (req, res) => {
     const user = currentUser(req);
     const record = owned(req, user, String(req.params.id));
+    await assertPrivateApplicationStorage(user, record.fileId);
     if (
       !Buffer.isBuffer(req.body) ||
       req.body.subarray(0, 16).toString() !== 'SQLite format 3\u0000'

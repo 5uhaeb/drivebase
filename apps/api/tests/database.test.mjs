@@ -29,6 +29,8 @@ async function start(mode, directory) {
       FRONTEND_URL: frontend,
       GOOGLE_REDIRECT_URI: frontend + '/api/auth/google/callback',
       QUERY_TIMEOUT_MS: '5000',
+      TASKFLOW_FRONTEND_URL: 'https://suhaeb-taskflow.vercel.app',
+      TASKFLOW_IDENTITY_SECRET: 'local-test-only-identity-secret-at-least-32-chars',
       ...(mode === 'google'
         ? {
             GOOGLE_CLIENT_ID: 'test-client',
@@ -317,6 +319,16 @@ test('production Google mode starts without local metadata and requests limited 
     assert.ok(!scopes.includes('https://www.googleapis.com/auth/drive'));
     assert.match(consent.headers.get('set-cookie'), /HttpOnly/);
     assert.match(consent.headers.get('set-cookie'), /Secure/);
+    const state = randomBytes(32).toString('base64url');
+    const taskflow = await fetch(server.url + '/api/identity/google?app=taskflow&state=' + state, {
+      redirect: 'manual',
+    });
+    assert.equal(taskflow.status, 302);
+    const identityScopes = new URL(taskflow.headers.get('location')).searchParams
+      .get('scope')
+      .split(' ');
+    assert.deepEqual(identityScopes.sort(), ['email', 'openid', 'profile']);
+    assert.ok(!identityScopes.some((scope) => scope.includes('drive')));
     assert.deepEqual(readdirSync(directory), []);
   } finally {
     await server.stop();

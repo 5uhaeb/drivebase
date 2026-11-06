@@ -10,7 +10,13 @@ The signed-in owner's Connection page can provision the portfolio, watchparty, a
 
 Server applications authenticate with `Authorization: Bearer <apiKey>`. Each key permits only its database's routes, requires a matching active hash in the Drive catalog, expires after 180 days, and survives dashboard logout. Valid application credentials do not require a browser Origin header. Google access must remain authorized independently; Google's Testing mode can expire refresh tokens after seven days.
 
+Application provisioning and snapshot imports reject Drive files or folders shared with anyone or an entire domain. Account databases need Restricted sharing. Explicitly invited collaborators can still access the underlying files, so grant access only to trusted people.
+
 `POST /databases/:id/import` accepts `application/vnd.sqlite3` up to the database size limit. It validates a Drivebase SQLite snapshot before replacing that database's file. Export the destination first when it contains data. Import preserves the database's ID and Drive file ID.
+
+## Taskflow identity broker
+
+`GET /identity/google?app=taskflow&state=...` is enabled only when `TASKFLOW_FRONTEND_URL` and `TASKFLOW_IDENTITY_SECRET` are configured. It requests identity scopes only, uses a sealed intent cookie and the existing OAuth state check, and returns a 60-second HS256 identity assertion to the fixed Taskflow callback URL in its fragment. Taskflow must verify issuer, audience, signature, expiry and its own state cookie before creating a session. The assertion does not authorize Drivebase database requests.
 
 | Method | Route                                                          | Purpose                                     |
 | ------ | -------------------------------------------------------------- | ------------------------------------------- |

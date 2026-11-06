@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, createHmac } from 'node:crypto';
 import { mkdtempSync, readdirSync, rmdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,6 +16,57 @@ const { createCatalogStore } = await import('../dist/catalog.js');
 const { encodeSession, decodeSession, sessionKey } = await import('../dist/session.js');
 const { seal } = await import('../dist/store.js');
 const { decodeApplicationKey, isApplicationPath } = await import('../dist/application-key.js');
+const { createIdentityIntent, readIdentityIntent, signIdentity } = await import(
+  '../dist/identity.js'
+);
+
+const { assertPrivateApplicationStorage } = await import('../dist/storage.js');
+const { OAuth2Client } = await import('google-auth-library');
+test('application provisioning rejects publicly shared Drive storage before private data is imported', async (t) => {
+  t.mock.method(OAuth2Client.prototype, 'getAccessToken', async () => ({
+    token: 'local-test-access-token',
+  }));
+  let permissions = [{ type: 'user' }];
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ permissions }));
+  const { user } = fixture();
+  await assertPrivateApplicationStorage(user, 'private_file');
+  permissions = [{ type: 'user' }, { type: 'anyone' }];
+  await assert.rejects(
+    assertPrivateApplicationStorage(user, 'public_file'),
+    (error) => error.status === 403,
+  );
+  permissions = [{ type: 'domain' }];
+  await assert.rejects(
+    assertPrivateApplicationStorage(user, 'domain_file'),
+    (error) => error.status === 403,
+  );
+});
+test('Taskflow identity handoff is sealed, short-lived and bound to its state and audience', () => {
+  const state = randomBytes(32).toString('base64url');
+  const cookie = createIdentityIntent(state);
+  assert.equal(readIdentityIntent(cookie).state, state);
+  assert.equal(readIdentityIntent(cookie + 'bad'), null);
+  assert.equal(
+    readIdentityIntent(seal(JSON.stringify({ app: 'taskflow', state, expires: Date.now() - 1 }))),
+    null,
+  );
+  assert.throws(() => createIdentityIntent('untrusted-state'));
+  const secret = 'local-test-identity-secret-at-least-32-characters';
+  const token = signIdentity({ sub: 'google-user', email: 'verified@example.test' }, state, secret);
+  const [header, body, signature] = token.split('.');
+  assert.equal(
+    signature,
+    createHmac('sha256', secret)
+      .update(header + '.' + body)
+      .digest('base64url'),
+  );
+  const claims = JSON.parse(Buffer.from(body, 'base64url'));
+  assert.equal(claims.aud, 'taskflow');
+  assert.equal(claims.iss, 'drivebase');
+  assert.equal(claims.state, state);
+  assert.equal(claims.exp - claims.iat, 60);
+  assert.equal(claims.email_verified, true);
+});
 after(() => {
   assert.deepEqual(readdirSync(directory), []);
   rmdirSync(directory);

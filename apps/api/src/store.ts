@@ -64,6 +64,8 @@ export function seal(value: string) {
 }
 export function unseal(value: string) {
   const data = Buffer.from(value, 'base64');
+  if (data.length < 28 || data.toString('base64') !== value)
+    throw new Error('Invalid encrypted value');
   const decipher = createDecipheriv(
     'aes-256-gcm',
     Buffer.from(config.encryptionKey, 'base64'),

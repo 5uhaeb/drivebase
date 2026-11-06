@@ -91,6 +91,23 @@ export async function selectFolder(user: User, folderId: string) {
   user.folderName = folder.name;
   return folder;
 }
+export async function assertPrivateApplicationStorage(user: User, fileId?: string) {
+  if (config.mode === 'demo') return;
+  const id = fileId || (await ensureFolder(user));
+  const response = await driveRequest(
+    user,
+    `drive/v3/files/${encodeURIComponent(id)}?supportsAllDrives=true&fields=permissions(type)`,
+  );
+  const file = (await response.json()) as { permissions?: { type: string }[] };
+  if (
+    !file.permissions ||
+    file.permissions.some((permission) => ['anyone', 'domain'].includes(permission.type))
+  )
+    throw new HttpError(
+      403,
+      'Application databases contain account data. Set this Drive folder and its database files to Restricted sharing before connecting projects.',
+    );
+}
 function localFile(user: User, id: string) {
   if (!/^[a-zA-Z0-9_-]+$/.test(id) || !/^[a-zA-Z0-9_-]+$/.test(user.id))
     throw new Error('Invalid file identifier');
