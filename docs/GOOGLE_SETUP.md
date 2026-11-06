@@ -42,7 +42,7 @@ The consent-screen testing status can limit refresh-token lifetime. Reauthorizat
 
 In the **same Cloud project**, open **APIs & Services → Credentials → Create credentials → API key**.
 
-- Under **Application restrictions**, select **Websites / HTTP referrers** and allow `https://drivebase-5uhaeb.vercel.app/*`.
+- Under **Application restrictions**, select **Websites / HTTP referrers** and allow both `https://drivebase-5uhaeb.vercel.app/*` and `https://docs.google.com/*`. Google's picker iframe uses the second origin.
 - Under **API restrictions**, restrict the key to **Google Picker API**.
 - Keep the generated key and project number for the backend configuration.
 
