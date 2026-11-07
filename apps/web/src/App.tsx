@@ -495,11 +495,16 @@ export default function App() {
           </div>
         </div>
         <div className="sidebar-section-label">WORKSPACE</div>
-        <button className="sidebar-nav selected" onClick={() => setTab('sql')}>
+        <button
+          className={`sidebar-nav ${tab !== 'connection' ? 'selected' : ''}`}
+          aria-current={tab !== 'connection' ? 'page' : undefined}
+          onClick={() => setTab('sql')}
+        >
           <Layers3 size={17} /> Databases <span className="count">{databases.length}</span>
         </button>
         <button
           className={`sidebar-nav ${tab === 'connection' ? 'active' : ''}`}
+          aria-current={tab === 'connection' ? 'page' : undefined}
           onClick={() => setTab('connection')}
         >
           <Settings2 size={17} /> Connection

@@ -584,6 +584,7 @@ input::placeholder {
   margin-left: auto;
 }
 .sidebar-nav.active {
+  background: #b9ef8411;
   color: #d0e1c4;
 }
 .database-label {
