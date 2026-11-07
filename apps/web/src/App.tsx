@@ -45,7 +45,7 @@ const formatBytes = (bytes: number) =>
   bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 const prettyTime = (value: string) =>
   new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-type Tab = 'sql' | 'collections' | 'connection';
+type Tab = 'sql' | 'nosql' | 'collections' | 'connection';
 function initialTab(): Tab {
   const requested = location.hash === '#connection';
   try {
@@ -82,6 +82,8 @@ export default function App() {
   const [schema, setSchema] = useState<Schema>({ tables: [], collections: [] });
   const [tab, setTab] = useState<Tab>(initialTab);
   const [sql, setSql] = useState(initialSql);
+  const [nosql, setNosql] = useState('{\n  "collection": "notes",\n  "filter": {},\n  "limit": 100\n}');
+  const [nosqlResults, setNosqlResults] = useState<DocumentRecord[] | null>(null);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [busy, setBusy] = useState('');
@@ -291,6 +293,20 @@ export default function App() {
       setHistory((items) => [sql, ...items.filter((item) => item !== sql)].slice(0, 10));
       setDatabases((items) => items.map((db) => (db.id === data.database.id ? data.database : db)));
       await reloadSchema();
+    });
+  }
+  async function runNoSqlQuery() {
+    await act('Running NoSQL query', async () => {
+      const query = JSON.parse(nosql) as { collection?: string; filter?: Record<string, unknown>; limit?: number };
+      const name = query.collection || collection;
+      if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(name)) throw new Error('Collection names must start with a letter and use letters, numbers, hyphens, or underscores.');
+      if (!query.filter || typeof query.filter !== 'object' || Array.isArray(query.filter)) throw new Error('Filter must be a JSON object.');
+      const limit = Math.max(1, Math.min(100, Number(query.limit) || 100));
+      const data = await api<{ documents: DocumentRecord[] }>(`/databases/${selectedId}/collections/${encodeURIComponent(name)}/documents`);
+      const matches = data.documents.filter((document) => Object.entries(query.filter!).every(([key, value]) => JSON.stringify(key === '_id' ? document.id : document.data[key]) === JSON.stringify(value)));
+      setCollection(name);
+      setNosqlResults(matches.slice(0, limit));
+      setNotice(`${Math.min(matches.length, limit)} document${Math.min(matches.length, limit) === 1 ? '' : 's'} returned.`);
     });
   }
   async function saveDocument(event: FormEvent) {
@@ -843,6 +859,12 @@ export default function App() {
                         <Code2 size={16} /> SQL editor
                       </button>
                       <button
+                        className={tab === 'nosql' ? 'active' : ''}
+                        onClick={() => setTab('nosql')}
+                      >
+                        <Braces size={16} /> NoSQL query
+                      </button>
+                      <button
                         className={tab === 'collections' ? 'active' : ''}
                         onClick={() => setTab('collections')}
                       >
@@ -850,7 +872,15 @@ export default function App() {
                       </button>
                       <span>YOUR DATA, YOUR RULES</span>
                     </div>
-                    {tab === 'sql' ? (
+                    {tab === 'nosql' ? (
+                      <section className="nosql-workspace">
+                        <div className="editor-heading"><span><span className="status-dot" /> query.json</span><span>JSON document query</span></div>
+                        <textarea className="nosql-editor" aria-label="NoSQL query" spellCheck={false} value={nosql} disabled={!!busy} onChange={(event) => setNosql(event.target.value)} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') void runNoSqlQuery(); }} />
+                        <div className="editor-footer"><span><Braces size={14} /> Filter documents by exact field values</span><button className="primary small" disabled={!!busy || !selectedId} onClick={runNoSqlQuery}>{busy === 'Running NoSQL query' ? 'Running…' : 'Run query'}</button></div>
+                        <div className="results-heading"><span>Results {nosqlResults && <span className="count">{nosqlResults.length}</span>}</span></div>
+                        <pre className="nosql-results">{nosqlResults ? JSON.stringify(nosqlResults.map((document) => ({ _id: document.id, ...document.data })), null, 2) : 'Run a query to view matching JSON documents.'}</pre>
+                      </section>
+                    ) : tab === 'sql' ? (
                       <div className="sql-layout">
                         <aside className="schema-sidebar">
                           <div className="section-label">

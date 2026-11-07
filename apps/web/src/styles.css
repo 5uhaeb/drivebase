@@ -1016,6 +1016,36 @@ input::placeholder {
   min-width: 0;
   position: relative;
 }
+.nosql-workspace {
+  min-height: 470px;
+  display: flex;
+  flex-direction: column;
+}
+.nosql-workspace > .editor-heading {
+  padding: 14px 18px;
+}
+.nosql-editor {
+  width: 100%;
+  min-height: 210px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  padding: 22px 30px;
+  color: #577449;
+  background: #fff;
+  font: 13px/1.9 var(--mono);
+}
+.nosql-results {
+  margin: 0;
+  padding: 20px 28px;
+  min-height: 150px;
+  overflow: auto;
+  color: #577449;
+  background: #fbfdf9;
+  font: 12px/1.8 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .editor-heading {
   height: 40px;
   display: flex;
