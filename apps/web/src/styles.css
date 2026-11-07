@@ -126,22 +126,8 @@ input::placeholder {
   width: 31px;
   height: 31px;
   border-radius: 8px;
-  background: var(--green);
-  color: #1c3020;
-  font:
-    800 25px 'Manrope',
-    sans-serif;
-  display: grid;
-  place-items: center;
-  position: relative;
-}
-.brand-mark > span {
-  position: absolute;
-  width: 7px;
-  height: 7px;
-  background: var(--green);
-  left: 6px;
-  top: 12px;
+  display: block;
+  flex-shrink: 0;
 }
 .brand strong {
   font-size: 23px;
@@ -1632,12 +1618,6 @@ kbd {
 .connection-panel {
   padding: 27px;
 }
-.project-connections {
-  grid-column: 1 / -1;
-}
-.project-connections .primary {
-  margin-top: 12px;
-}
 .connection-panel h2 {
   font-size: 20px;
   margin: 14px 0;
@@ -1668,7 +1648,8 @@ kbd {
   margin-top: 10px;
   font-size: 11px;
 }
-.connection-panel ol {
+.connection-panel ol,
+.connection-panel ul {
   padding-left: 16px;
   font-size: 12px;
   line-height: 1.9;

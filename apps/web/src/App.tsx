@@ -63,9 +63,7 @@ function initialTab(): Tab {
 function Brand() {
   return (
     <div className="brand">
-      <span className="brand-mark">
-        D<span />
-      </span>
+      <img className="brand-mark" src="/brand-mark.svg" alt="" />
       <strong>
         drivebase<span className="brand-dot">.</span>
       </strong>
@@ -102,12 +100,8 @@ export default function App() {
   const [history, setHistory] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
-  const [projectDownload, setProjectDownload] = useState('');
   const editor = useRef<HTMLTextAreaElement>(null);
   const selected = databases.find((db) => db.id === selectedId);
-  useEffect(() => () => {
-    if (projectDownload) URL.revokeObjectURL(projectDownload);
-  }, [projectDownload]);
 
   const refreshDatabases = useCallback(async () => {
     const data = await api<{ databases: Database[] }>('/databases');
@@ -267,25 +261,6 @@ export default function App() {
       setNotice(
         `New databases will be saved in “${data.user.folderName || 'your selected folder'}”. Existing database files remain in their current folders.`,
       );
-    });
-  }
-  async function connectProjects() {
-    await act('Preparing project connections', async () => {
-      const credentials = await api('/integrations/projects', { method: 'POST', body: '{}' });
-      const url = URL.createObjectURL(
-        new Blob([JSON.stringify(credentials, null, 2)], { type: 'application/json' }),
-      );
-      setProjectDownload(url);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'drivebase-project-credentials.json';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setNotice(
-        'Your website connections are ready. If the download did not start, use Download connection file below.',
-      );
-      refreshDatabases().catch(() => {});
     });
   }
   async function createDatabase(event: FormEvent) {
@@ -673,25 +648,6 @@ export default function App() {
           </div>
           {tab === 'connection' ? (
             <div className="connection-grid">
-              {mode === 'google' && (
-                <section className="panel connection-panel project-connections" aria-labelledby="project-connections-title">
-                  <span className="eyebrow">YOUR THREE WEBSITES</span>
-                  <h2 id="project-connections-title">Connect your websites to Google Drive</h2>
-                  <p>Prepare storage for Portfolio, Watchparty and Taskflow. This creates a private connection file for their setup.</p>
-                  {projectDownload ? (
-                    <a className="primary" href={projectDownload} download="drivebase-project-credentials.json">
-                      <ArrowDownToLine size={17} /> Download connection file
-                    </a>
-                  ) : (
-                    <button className="primary" disabled={!!busy} onClick={connectProjects}>
-                      {busy === 'Preparing project connections' ? <LoaderCircle size={17} className="spin" /> : <Code2 size={17} />}
-                      {busy === 'Preparing project connections' ? 'Connecting your websites…' : 'Connect portfolio, Watchparty and Taskflow'}
-                    </button>
-                  )}
-                  {busy === 'Preparing project connections' && <p role="status">Creating the three connections in your Drive. This can take up to a minute.</p>}
-                  {projectDownload && <p role="status">Ready. Save the file to Downloads, then return to the chat and say “done”. Keep this file private.</p>}
-                </section>
-              )}
               <section className="panel connection-panel">
                 <div className="connection-hero">
                   <Cloud size={28} />
@@ -719,8 +675,6 @@ export default function App() {
                   <dd>{formatBytes(maxBytes)} per database</dd>
                   <dt>Account limit</dt>
                   <dd>10 databases</dd>
-                  <dt>Deployment model</dt>
-                  <dd>Single backend instance</dd>
                 </dl>
                 {user.folderId && (
                   <a
@@ -750,28 +704,20 @@ export default function App() {
                 )}
               </section>
               <section className="panel connection-panel">
-                <span className="eyebrow">GET CONNECTED</span>
-                <h2>{mode === 'demo' ? 'Bring your own Drive.' : 'Permission stays focused.'}</h2>
+                <span className="eyebrow">ACCESS &amp; STORAGE</span>
+                <h2>{mode === 'demo' ? 'Connect your Google Drive' : 'Your data, under your control'}</h2>
                 <p>
                   {mode === 'demo'
-                    ? 'Configure the Google OAuth client on the backend, then restart with AUTH_MODE=google.'
+                    ? 'This local workspace saves data on this computer. See the documentation to configure Google Drive storage.'
                     : 'Drivebase accesses files it creates and folders you explicitly choose. Selecting a folder does not import every file inside it.'}
                 </p>
-                <ol>
-                  <li>Create a Google OAuth web client and enable the Drive API.</li>
-                  <li>
-                    Set the callback to your frontend URL followed by{' '}
-                    <code>/api/auth/google/callback</code>.
-                  </li>
-                  <li>
-                    Add the client ID, client secret, and token encryption key to the backend
-                    environment.
-                  </li>
-                  <li>Sign in and grant access to app-created Drive files.</li>
-                </ol>
+                <ul>
+                  <li>Choose a folder for new databases using the folder selector.</li>
+                  <li>Run SQL queries and manage JSON collections from your workspace.</li>
+                  <li>Download a database anytime to keep your own backup.</li>
+                </ul>
                 <p className="muted">
-                  Deployment instructions and the complete environment reference are included in the
-                  repository.
+                  Changing the storage folder keeps existing databases in their current locations.
                 </p>
                 <a
                   className="text-link"
@@ -779,7 +725,7 @@ export default function App() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Open project documentation <ArrowRight size={15} />
+                  Read documentation <ArrowRight size={15} />
                 </a>
               </section>
             </div>
