@@ -226,6 +226,17 @@ export function createCatalogStore(storage: CatalogStorage = googleCatalogs) {
       await storage.write(account.user, account.catalog, account.catalogId);
       return key;
     },
+    async revokeApplication(account: Account, databaseId: string, name: string) {
+      let revoked = false;
+      for (const [hash, key] of Object.entries(account.catalog.apiKeys)) {
+        if (key.name === name && key.databaseId === databaseId) {
+          delete account.catalog.apiKeys[hash];
+          revoked = true;
+        }
+      }
+      if (revoked) await storage.write(account.user, account.catalog, account.catalogId);
+      return revoked;
+    },
     async save(account: Account) {
       account.catalog.folderId = account.user.folderId;
       account.catalog.folderName = account.user.folderName;

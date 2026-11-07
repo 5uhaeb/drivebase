@@ -10,12 +10,14 @@ import {
   CircleHelp,
   Cloud,
   Code2,
+  Copy,
   Database as DatabaseIcon,
   ExternalLink,
   FileJson2,
   FolderOpen,
   HardDrive,
   Layers3,
+  KeyRound,
   LoaderCircle,
   LogOut,
   Play,
@@ -97,6 +99,8 @@ export default function App() {
   const [documentJson, setDocumentJson] = useState(
     '{\n  "title": "My first document",\n  "published": false\n}',
   );
+  const [connectionName, setConnectionName] = useState('my-project');
+  const [issuedConnection, setIssuedConnection] = useState<{ apiUrl: string; databaseId: string; name: string; apiKey: string; expiresInDays: number } | null>(null);
   const [offset, setOffset] = useState(0);
   const [search, setSearch] = useState('');
   const [history, setHistory] = useState<string[]>([]);
@@ -307,6 +311,22 @@ export default function App() {
       setCollection(name);
       setNosqlResults(matches.slice(0, limit));
       setNotice(`${Math.min(matches.length, limit)} document${Math.min(matches.length, limit) === 1 ? '' : 's'} returned.`);
+    });
+  }
+  async function createApplicationKey(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedId) return;
+    await act('Creating project key', async () => {
+      const result = await api<{ apiUrl: string; databaseId: string; name: string; apiKey: string; expiresInDays: number }>(`/databases/${selectedId}/application-keys`, { method: 'POST', body: JSON.stringify({ name: connectionName }) });
+      setIssuedConnection(result);
+    });
+  }
+  async function revokeApplicationKey() {
+    if (!selectedId || !connectionName.trim()) return;
+    await act('Revoking project key', async () => {
+      await api(`/databases/${selectedId}/application-keys/${encodeURIComponent(connectionName.trim())}`, { method: 'DELETE' });
+      setIssuedConnection(null);
+      setNotice('The project key was revoked.');
     });
   }
   async function saveDocument(event: FormEvent) {
@@ -723,6 +743,28 @@ export default function App() {
                     </p>
                   </div>
                 )}
+              </section>
+              <section className="panel connection-panel">
+                <span className="eyebrow"><KeyRound size={14} /> PROJECT CONNECTION</span>
+                <h2>Connect a project to a database</h2>
+                <p>Create a key scoped to one database. Add it to your project’s backend environment; keep it out of browser code and GitHub.</p>
+                <form className="app-key-form" onSubmit={createApplicationKey}>
+                  <label htmlFor="connection-database">Database</label>
+                  <select id="connection-database" value={selectedId} onChange={(event) => { setSelectedId(event.target.value); setIssuedConnection(null); }} disabled={!databases.length || !!busy}>
+                    {databases.map((db) => <option key={db.id} value={db.id}>{db.name}</option>)}
+                  </select>
+                  <label htmlFor="connection-name">Project label</label>
+                  <input id="connection-name" value={connectionName} maxLength={48} onChange={(event) => { setConnectionName(event.target.value); setIssuedConnection(null); }} placeholder="e.g. portfolio" required />
+                  <button className="primary" disabled={!selectedId || !!busy || !connectionName.trim()}><KeyRound size={16} /> {busy === 'Creating project key' ? 'Creating…' : 'Generate project key'}</button>
+                </form>
+                {issuedConnection && <div className="issued-key" role="status">
+                  <strong>Key created · shown only once</strong>
+                  <p>Set these values in your backend environment:</p>
+                  <pre>{`DRIVEBASE_API_URL=${issuedConnection.apiUrl}\nDRIVEBASE_DATABASE_ID=${issuedConnection.databaseId}\nDRIVEBASE_API_KEY=${issuedConnection.apiKey}`}</pre>
+                  <button className="secondary" onClick={() => void navigator.clipboard.writeText(`DRIVEBASE_API_URL=${issuedConnection.apiUrl}\nDRIVEBASE_DATABASE_ID=${issuedConnection.databaseId}\nDRIVEBASE_API_KEY=${issuedConnection.apiKey}`)}><Copy size={15} /> Copy environment values</button>
+                  <p>Expires in {issuedConnection.expiresInDays} days. Generating another key with the same project label revokes this one.</p>
+                </div>}
+                <button className="text-link revoke-key" disabled={!selectedId || !!busy || !connectionName.trim()} onClick={() => void revokeApplicationKey()}>Revoke key for this project</button>
               </section>
               <section className="panel connection-panel">
                 <span className="eyebrow">ACCESS &amp; STORAGE</span>

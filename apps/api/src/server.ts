@@ -348,6 +348,28 @@ accountRoutes.post('/api/integrations/projects', async (req, res) => {
   }
   res.json({ version: 1, apiUrl: config.frontend + '/api', projects });
 });
+accountRoutes.post('/api/databases/:id/application-keys', async (req, res) => {
+  const user = currentUser(req);
+  const account = requestAccounts.get(req);
+  if (!account || config.mode !== 'google')
+    throw new HttpError(400, 'Sign in with Google to create an application key.');
+  const record = owned(req, user, String(req.params.id));
+  const { name } = z.object({ name: z.string().trim().min(1).max(48).regex(/^[a-zA-Z0-9][a-zA-Z0-9 _.-]*$/) }).parse(req.body);
+  await assertPrivateApplicationStorage(user, record.fileId);
+  const apiKey = await catalogs.issueApplication(account, record.id, name);
+  res.json({ apiUrl: config.frontend + '/api', databaseId: record.id, name, apiKey, expiresInDays: 180 });
+});
+accountRoutes.delete('/api/databases/:id/application-keys/:name', async (req, res) => {
+  const user = currentUser(req);
+  const account = requestAccounts.get(req);
+  if (!account || config.mode !== 'google')
+    throw new HttpError(400, 'Sign in with Google to revoke an application key.');
+  const record = owned(req, user, String(req.params.id));
+  const name = z.string().min(1).max(48).parse(req.params.name);
+  const revoked = await catalogs.revokeApplication(account, record.id, name);
+  if (!revoked) throw new HttpError(404, 'No application key exists for this project.');
+  res.json({ revoked: true });
+});
 app.use('/api/databases', (_req, res, next) => {
   res.set('Cache-Control', 'no-store');
   next();
